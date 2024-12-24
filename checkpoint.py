@@ -81,6 +81,9 @@ class Checkpoint:
         torch.save(state, path)
         print(f"Checkpoint saved at {path}")
 
-
+    def clear_folder(self):
+        for f in os.listdir(self.folder):
+            if f.endswith(".pth"):
+                os.remove(os.path.join(self.folder, f))
 
 
