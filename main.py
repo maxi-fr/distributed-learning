@@ -14,7 +14,7 @@ from torchvision import datasets, transforms
 from model import LeNet5
 
 
-def main(epochs):
+def main(epochs, device=None, criterion=None, optimizer=None):
 
     full_train_dataset = datasets.CIFAR100(root='./data', train=True, download=True, transform=transforms.ToTensor())
 
@@ -25,11 +25,15 @@ def main(epochs):
 
     train_loader = DataLoader(dataset=train_dataset, batch_size=64, shuffle=True)
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = LeNet5(num_classes=100).to(device)
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    if criterion is None:
+        criterion = nn.CrossEntropyLoss()
+    
+    if optimizer is None:
+        optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     train_loss, train_acc, eval_loss, eval_acc = model.fit(train_loader, epochs, criterion, optimizer, device, val_dataset, save_every=2)
 
