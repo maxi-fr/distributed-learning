@@ -117,9 +117,10 @@ class LeNet5(nn.Module):
                 cp.eval_loss.append(e_loss)
                 cp.eval_acc.append(e_acc)
 
-            if (epoch + 1) % save_every == 0:
-                cp.epoch = epoch
-                cp.save(self, optimizer) 
+            if save_every is not None:
+                if (epoch + 1) % save_every == 0:
+                    cp.epoch = epoch
+                    cp.save(self, optimizer) 
             
 
         return cp.train_loss, cp.train_acc, cp.eval_loss, cp.eval_acc
