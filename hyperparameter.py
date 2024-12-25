@@ -21,28 +21,58 @@ def sample_uniform(inp) -> float|tuple[float]:
         out = tuple([random.uniform(*x) for x in inp])
 
     return out
-
-def random_search(trainer: Trainer, max_iter: int, n_epochs: int, batch_size: int,
-                  search_space: dict, folder: str, save_every=None) -> pd.DataFrame:
+def random_search(trainer: Trainer, max_iter: int, n_epochs: int, batch_size: int | list[int], 
+                  search_space_opt: dict, folder: str, save_every=None) -> pd.DataFrame:
     """
-    Performs grid search for a general optimizer with logging for each parameter combination.
+    Perform random search over a defined hyperparameter space for training a model.
 
     Args:
-        model_class (torch.nn.Module): The model with `fit` and `evaluate` methods implemented, i.e LeNet5.
-        train_loader (DataLoader): Training data loader.
-        eval_data (Dataset, optional): Validation or test data.
-        criterion (torch.nn.Module): Loss function.
-        device (torch.device): Device to train on (e.g., 'cuda' or 'cpu').
-        n_epochs (int): Number of epochs to train for each configuration.
-        optimizer_class (Optimizer): Optimizer class (e.g., torch.optim.AdamW).
-        search_space (dict): Hyperparameter ranges to search.
-        folder (str): Folder for saving checkpoints into 
-        save_every (int, optional): Save a checkpoint every `save_every` epochs. Default is None.
+        trainer (Trainer): 
+            An instance of the Trainer class used to manage model training and evaluation.
+        max_iter (int): 
+            The maximum number of hyperparameter combinations to sample and evaluate.
+        n_epochs (int): 
+            The number of training epochs for each hyperparameter configuration.
+        batch_size (int | list[int]): 
+            The batch size(s) to test. If a list is provided, one value is sampled per iteration.
+        search_space_opt (dict): 
+            A dictionary defining the hyperparameter space for optimization. 
+            Keys are hyperparameter names, and values are tuples defining the intervall of the possible parameters of the optimizer.
+        folder (str): 
+            Directory path to save training checkpoints and logs for each experiment.
+        save_every (int, optional): 
+            Frequency (in epochs) to save model checkpoints. Defaults to None, meaning no saves.
 
     Returns:
-        pd.DataFrame: Dataframe containing all parameter combinations and corresponding metrics.
+        pd.DataFrame: 
+            A DataFrame containing the results of the random search. Each row corresponds to a trial, and columns
+            include hyperparameters, training/validation loss, accuracy, and additional metrics for comparison.
+
+    Example:
+        ```python
+        trainer = Trainer(training_data, validation_data, model, optimizer_class, optimizer_params, device)
+
+        search_space = {
+            "lr": [0.0001, 0.1],
+            "momentum": [0, 0.9]
+        }
+
+        results = random_search(
+            trainer=trainer,
+            max_iter=20,
+            n_epochs=50,
+            batch_size=[32, 64, 128],
+            search_space_opt=search_space,
+            folder="./checkpoints",
+            save_every=10
+        )
+
+        print(results)
+        ```
     """
     trainer.verbose = False
+
+    hyp_names = ["batch_size", *params_opt.keys()]
 
     cp_folder = os.path.join(folder, "Checkpoints")
     if not os.path.isdir(cp_folder):
@@ -59,35 +89,40 @@ def random_search(trainer: Trainer, max_iter: int, n_epochs: int, batch_size: in
     results = []
     for it in range(1, max_iter+1):
 
-        params = {k: sample_uniform(v) for k, v in search_space.items()}
-        print(f"Testing parameters: {params} for {trainer._optimizer_class}")
+        params_opt = {k: sample_uniform(v) for k, v in search_space_opt.items()}
 
-        trainer.reset_model(params)
+        if hasattr(batch_size, "__len__"):
+            bs = random.choice(batch_size)
+        else:
+            bs = batch_size
+
+        print(f"Testing parameters: {params_opt} for {trainer._optimizer_class}")
+
+        trainer.reset_model(params_opt)
         cp.reset_checkpoint()
         cp.clear_folder()
 
-        trainer.train_model(batch_size, n_epochs, cp=cp, save_every=save_every)
+        trainer.train_model(bs, n_epochs, cp=cp, save_every=save_every)
 
         final_eval_loss, final_eval_accuracy = trainer.evaluate()
 
-        results.append((*params.values(), final_eval_loss, final_eval_accuracy))
-        pd.DataFrame(results, columns=(*params.keys(), VAL_LOSS, VAL_ACC)).to_csv(save_path)
+        results.append((bs, *params_opt.values(), final_eval_loss, final_eval_accuracy))
+        pd.DataFrame(results, columns=(*hyp_names, VAL_LOSS, VAL_ACC)).to_csv(save_path)
 
         print(f"Random search it: [{it}/{max_iter}], {(time.monotonic()-start_time)/it:.2f}s per iteration")
 
-
-    results = pd.DataFrame(results, columns=(*params.keys(), VAL_LOSS, VAL_ACC))
+    results = pd.DataFrame(results, columns=(*hyp_names, VAL_LOSS, VAL_ACC)).set_index(hyp_names)
 
     print("The best hyperparameter set is:")
     print(results.sort_values(VAL_LOSS).iloc[0])
-    print("and for accuracy:")
+    print("\nand for accuracy:")
     print(results.sort_values(VAL_ACC).iloc[0])
 
     return results
 
 
-def plot_2d_results(results_df, metric=VAL_LOSS) -> tuple[plt.Figure, plt.Axes]:
-    params = results_df.columns[:-2]
+def plot_2d_results(results_df: pd.DataFrame, metric=VAL_LOSS) -> tuple[plt.Figure, plt.Axes]:
+    params = results_df.index.names
 
     fig, axss = plt.subplots(len(params), len(params), sharex="col", sharey="row")
 
@@ -109,21 +144,24 @@ def plot_2d_results(results_df, metric=VAL_LOSS) -> tuple[plt.Figure, plt.Axes]:
                 ax.set_xticks(range(len(heatmap_data.columns)))
                 ax.set_xticklabels(heatmap_data.columns, rotation=90)
                 ax.set_yticks(range(len(heatmap_data.index)))
-
                 ax.set_yticklabels(heatmap_data.index)
     return fig, ax
 
 
 def plot_1d_results(results_df: pd.DataFrame, metric=VAL_LOSS) -> tuple[plt.Figure, plt.Axes]:
-    params = results_df.iloc[:, :-2]
+    params = results_df.index.names
 
-    fig, axs = plt.subplots(len(params.columns))
+    results_df = results_df.reset_index()
+
+    fig, axs = plt.subplots(len(params))
 
     for ax, col in zip(axs, params):
-        ax.scatter(params[col], results_df[metric])
+        results_df.sort_values(col, inplace=True)
+        ax.plot(results_df[col], results_df[metric], marker="x")
         ax.set_xlabel(col)
         ax.grid()
     fig.supylabel(metric)
+    fig.tight_layout()
 
     return fig, ax
 
