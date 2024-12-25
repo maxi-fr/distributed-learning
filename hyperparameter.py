@@ -14,16 +14,16 @@ from model import LeNet5, Trainer
 VAL_LOSS = "validation_loss"
 VAL_ACC = "validation_acc"
 
-def sample_uniform(inp):
+def sample_uniform(inp) -> float|tuple[float]:
     if np.squeeze(inp).ndim == 1:
         out = random.uniform(*inp)
     else:
-        out = [random.uniform(*x) for x in inp]
+        out = tuple([random.uniform(*x) for x in inp])
 
     return out
 
 def random_search(trainer: Trainer, max_iter: int, n_epochs: int, batch_size: int,
-                  search_space: dict, folder: str, save_every=None):
+                  search_space: dict, folder: str, save_every=None) -> pd.DataFrame:
     """
     Performs grid search for a general optimizer with logging for each parameter combination.
 
@@ -86,7 +86,7 @@ def random_search(trainer: Trainer, max_iter: int, n_epochs: int, batch_size: in
     return results
 
 
-def plot_2d_results(results_df, metric=VAL_LOSS):
+def plot_2d_results(results_df, metric=VAL_LOSS) -> tuple[plt.Figure, plt.Axes]:
     params = results_df.columns[:-2]
 
     fig, axss = plt.subplots(len(params), len(params), sharex="col", sharey="row")
@@ -100,7 +100,10 @@ def plot_2d_results(results_df, metric=VAL_LOSS):
             else:
                 y_param = params[j]
                 heatmap_data = results_df.pivot_table(index=x_param, columns=y_param, values=metric)
-                im = ax.imshow(heatmap_data, aspect="auto", cmap="viridis")
+                vmin = results_df[metric].min()
+                vmax = results_df[metric].max()
+                im = ax.imshow(heatmap_data, aspect="auto", cmap="viridis", vmin=vmin, vmax=vmax)
+
                 ax.set_xlabel(y_param)
                 ax.set_ylabel(x_param)
                 ax.set_xticks(range(len(heatmap_data.columns)))
@@ -111,7 +114,7 @@ def plot_2d_results(results_df, metric=VAL_LOSS):
     return fig, ax
 
 
-def plot_1d_results(results_df: pd.DataFrame, metric=VAL_LOSS):
+def plot_1d_results(results_df: pd.DataFrame, metric=VAL_LOSS) -> tuple[plt.Figure, plt.Axes]:
     params = results_df.iloc[:, :-2]
 
     fig, axs = plt.subplots(len(params.columns))
@@ -126,11 +129,6 @@ def plot_1d_results(results_df: pd.DataFrame, metric=VAL_LOSS):
 
 
 if __name__ == "__main__":
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-    from torch.utils.data import DataLoader, random_split
-    from torchvision import datasets, transforms
 
     trainer = Trainer.standard_init()
 

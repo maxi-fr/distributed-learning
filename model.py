@@ -1,9 +1,11 @@
 import time
+from typing import Type
 import torch
 from torch import nn
 import copy
 from torch.utils.data import DataLoader, Dataset
 from torch.optim import Optimizer
+from torch.optim.lr_scheduler import LRScheduler
 import copy
 from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms
@@ -44,24 +46,59 @@ class LeNet5(nn.Module):
             nn.ReLU(),
             nn.Linear(in_features=120, out_features=84),
             nn.ReLU(),
-            nn.Linear(in_features=84, out_features=num_classes),
-            nn.Softmax(dim=1)
+            nn.Linear(in_features=84, out_features=num_classes)
         )
 
-    def forward(self, x):
+        self._softmax = nn.Softmax(dim=1)
+    
+    def forward(self, x, apply_softmax=False):
         x = self._feature_extractor(x)
-
         x = torch.flatten(x, start_dim=1)
-
-        out = self._classifier(x)
-
-        return out
+        x = self._classifier(x)
+        
+        if apply_softmax:
+            x = self._softmax(x)
+        
+        return x
 
 
 class Trainer:
 
-    def __init__(self, training_data: Dataset, validation_data: Dataset, model: nn.Module, optimizer_class: Optimizer, 
-                 optimizer_params: dict, device, verbose=True):
+    def __init__(self, training_data: Dataset, validation_data: Dataset, model: nn.Module, optimizer_class: Type[Optimizer], 
+                 optimizer_params: dict, device, scheduler_class: Type[LRScheduler]=None, scheduler_params: dict=None,verbose=True):
+        """
+        Initializes the Trainer class for managing the training and evaluation process of a neural network.
+
+        Args:
+            training_data (torch.utils.data.Dataset): The dataset to be used for training the model.
+            validation_data (torch.utils.data.Dataset): The dataset to be used for validation during training.
+            model (torch.nn.Module): The neural network model to train and evaluate.
+            optimizer_class (Type[torch.optim.Optimizer]): The class of the optimizer to use (e.g., `torch.optim.Adam`).
+            optimizer_params (dict): A dictionary of parameters to initialize the optimizer.
+            device (torch.device): The device on which to perform computations (`torch.device('cuda')` or `torch.device('cpu')`).
+            scheduler_class (Type[torch.optim.lr_scheduler._LRScheduler], optional): 
+                The class of the learning rate scheduler to use (e.g., `torch.optim.lr_scheduler.CosineAnnealingLR`). 
+                Default is None. Scheduler gets updated every EPOCH
+            scheduler_params (dict, optional): A dictionary of parameters to initialize the scheduler. Default is None.
+            verbose (bool, optional): If True, prints progress and logs during training and evaluation. Default is True.
+
+        Attributes:
+            training_data (torch.utils.data.Dataset): Stores the training dataset.
+            validation_data (torch.utils.data.Dataset): Stores the validation dataset.
+            model (torch.nn.Module): The neural network model being trained.
+            _model_copy (torch.nn.Module): A deep copy of the initial model for resetting purposes.
+            optimizer (torch.optim.Optimizer): The optimizer instance initialized with the given parameters.
+            scheduler (torch.optim.lr_scheduler._LRScheduler or None): The learning rate scheduler instance.
+            _optimizer_class (Type[torch.optim.Optimizer]): Stores the optimizer class for reset purposes.
+            _optimizer_params (dict): Stores the optimizer parameters for reset purposes.
+            _scheduler_class (Type[torch.optim.lr_scheduler._LRScheduler] or None): 
+                Stores the scheduler class for reset purposes.
+            _scheduler_params (dict or None): Stores the scheduler parameters for reset purposes.
+            device (torch.device): The device on which computations are performed.
+            criterion (torch.nn.CrossEntropyLoss): The loss function used during training.
+            verbose (bool): Indicates whether to print progress logs during training and evaluation.
+        """
+
         self.training_data = training_data
         self.validation_data = validation_data
 
@@ -70,8 +107,14 @@ class Trainer:
         
         self.optimizer: Optimizer = optimizer_class(model.parameters(), **optimizer_params)
 
+        if scheduler_class is not None: 
+            self.scheduler: LRScheduler = scheduler_class(self.optimizer, **scheduler_params)
+
         self._optimizer_class = optimizer_class
         self._optimizer_params = copy.deepcopy(optimizer_params)
+
+        self._scheduler_class = scheduler_class
+        self._scheduler_params = copy.deepcopy(scheduler_params)
 
         self.device = device
         self.criterion = nn.CrossEntropyLoss()
@@ -97,6 +140,11 @@ class Trainer:
         """
 
         train_loader = DataLoader(self.training_data, batch_size, shuffle=True)
+        
+        patience = 5 # parameters for early stopping
+        delta = 1e-4
+
+        self.model.train()
 
         if cp is None:
             cp = Checkpoint()
@@ -107,8 +155,6 @@ class Trainer:
             print(f"Training progress: [0/{n_epochs-start_epoch}]")
 
         for epoch in range(start_epoch, n_epochs):
-            self.model.train()
-
             running_loss = 0.0
             correct = 0
             total = 0
@@ -136,9 +182,23 @@ class Trainer:
             cp.train_acc.append(correct / total)
 
             if eval_data is not None:
-                e_loss, e_acc = self.evaluate(eval_data)
+                e_loss, e_acc = self.evaluate(eval_data)                
                 cp.eval_loss.append(e_loss)
                 cp.eval_acc.append(e_acc)
+                self.model.train()
+
+                # TODO: early stopping?
+                # if len(cp.eval_loss) > patience:
+                #     recent_losses = cp.eval_loss[-patience:]
+                #     if all(recent_losses[i] >= recent_losses[i + 1] - delta for i in range(len(recent_losses) - 1)):
+                #         print(f"Early stopping at epoch {epoch + 1}")
+                #         break
+
+            if self._scheduler_class is not None:
+                self.scheduler.step()
+                if self.verbose:
+                    current_lr = self.optimizer.param_groups[0]['lr']
+                    print(f"Epoch {epoch + 1}: Learning rate {current_lr:.6f}")
 
             if save_every is not None:
                 if (epoch + 1) % save_every == 0:
@@ -189,12 +249,12 @@ class Trainer:
         accuracy = correct / len(eval_data)
 
         if self.verbose:
-            print(f"Evaluation loss:     {av_loss}")
+            print(f"Evaluation loss:     {av_loss:.4f}")
             print(f"Evaluation accuracy: {100 * accuracy:.2f}%")
 
         return av_loss, accuracy
 
-    def reset_model(self, optimizer_params: dict=None):
+    def reset_model(self, optimizer_params: dict=None, scheduler_params: dict=None):
         self.model: nn.Module = copy.deepcopy(self._model_copy) 
 
         if optimizer_params is None:
@@ -202,9 +262,43 @@ class Trainer:
 
         self.optimizer = self._optimizer_class(self.model.parameters(), **optimizer_params)
 
-    @classmethod
-    def standard_init(cls, optimizer_class= torch.optim.Adam, optimizer_params = {"lr": 0.001}):
+        if scheduler_params is None:
+            scheduler_params = self._scheduler_params
 
+        if self._scheduler_class is not None:
+            self.scheduler = self._scheduler_class(self.optimizer, **scheduler_params)
+
+    @classmethod
+    def standard_init(cls, optimizer_class=torch.optim.Adam, optimizer_params={"lr": 0.001}, 
+                    scheduler_class=None, scheduler_params=None):
+        """
+        A standard initialization method for the Trainer class using the CIFAR-100 dataset 
+        and the LeNet5 model. Configures the optimizer, scheduler, and splits the dataset 
+        into training and validation subsets.
+
+        Args:
+            optimizer_class (Type[torch.optim.Optimizer], optional): 
+                The optimizer class to use (e.g., `torch.optim.Adam`). Default is `torch.optim.Adam`.
+            optimizer_params (dict, optional): 
+                A dictionary of parameters to initialize the optimizer. Default is `{"lr": 0.001}`.
+            scheduler_class (Type[torch.optim.lr_scheduler._LRScheduler], optional): 
+                The scheduler class to use for learning rate adjustments (e.g., `torch.optim.lr_scheduler.CosineAnnealingLR`). 
+                Default is None.
+            scheduler_params (dict, optional): 
+                A dictionary of parameters to initialize the scheduler. Default is None.
+
+        Returns:
+            Trainer: An instance of the `Trainer` class configured with the LeNet5 model, 
+            CIFAR-100 dataset, the specified optimizer, and optional learning rate scheduler.
+
+        Example:
+            trainer = Trainer.standard_init(
+                optimizer_class=torch.optim.SGD,
+                optimizer_params={"lr": 0.01, "momentum": 0.9},
+                scheduler_class=torch.optim.lr_scheduler.StepLR,
+                scheduler_params={"step_size": 10, "gamma": 0.1}
+            )
+        """
         full_train_dataset = datasets.CIFAR100(root='./data', train=True, download=True, transform=transforms.ToTensor())
         
         train_size = 0.8  # 80% for training
@@ -215,7 +309,18 @@ class Trainer:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model = LeNet5(num_classes=100).to(device)
 
-        return cls(train_dataset, val_dataset, model, optimizer_class, optimizer_params, device)
+        return cls(
+            training_data=train_dataset,
+            validation_data=val_dataset,
+            model=model,
+            optimizer_class=optimizer_class,
+            optimizer_params=optimizer_params,
+            device=device,
+            scheduler_class=scheduler_class,
+            scheduler_params=scheduler_params
+        )
+
+
 
 if __name__ == "__main__":
     model = LeNet5(num_classes=100)
