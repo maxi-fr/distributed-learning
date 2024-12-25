@@ -1,4 +1,5 @@
 import copy
+import math
 import os
 import random
 import time
@@ -7,6 +8,8 @@ import numpy as np
 import pandas as pd
 import copy
 
+import torch
+
 from checkpoint import Checkpoint
 from model import LeNet5, Trainer
 
@@ -14,15 +17,30 @@ from model import LeNet5, Trainer
 VAL_LOSS = "validation_loss"
 VAL_ACC = "validation_acc"
 
-def sample_uniform(inp) -> float|tuple[float]:
-    if np.squeeze(inp).ndim == 1:
-        out = random.uniform(*inp)
+class SearchSpace:
+
+    def __init__(self, lower_bound, upper_bound, log_scale=False):
+        self.interval = np.array((lower_bound, upper_bound))
+        self.log_scale = log_scale
+        if log_scale:
+            self.interval = np.log(self.interval)
+
+    def sample(self):
+        if self.log_scale:
+            return math.exp(random.uniform(*self.interval))
+        
+        return random.uniform(*self.interval)
+
+
+def sample_float_or_list(inp: SearchSpace|list[SearchSpace]) -> float|list[float]:
+    if isinstance(inp, SearchSpace):
+        out = inp.sample()
     else:
-        out = tuple([random.uniform(*x) for x in inp])
+        out = [x.sample() for x in inp]
 
     return out
 def random_search(trainer: Trainer, max_iter: int, n_epochs: int, batch_size: int | list[int], 
-                  search_space_opt: dict, folder: str, save_every=None) -> pd.DataFrame:
+                  search_space_opt: dict[str, SearchSpace|list[SearchSpace]], folder: str, save_every=None) -> pd.DataFrame:
     """
     Perform random search over a defined hyperparameter space for training a model.
 
@@ -72,7 +90,7 @@ def random_search(trainer: Trainer, max_iter: int, n_epochs: int, batch_size: in
     """
     trainer.verbose = False
 
-    hyp_names = ["batch_size", *params_opt.keys()]
+    hyp_names = ["batch_size", *search_space_opt.keys()]
 
     cp_folder = os.path.join(folder, "Checkpoints")
     if not os.path.isdir(cp_folder):
@@ -89,7 +107,7 @@ def random_search(trainer: Trainer, max_iter: int, n_epochs: int, batch_size: in
     results = []
     for it in range(1, max_iter+1):
 
-        params_opt = {k: sample_uniform(v) for k, v in search_space_opt.items()}
+        params_opt = {k: sample_float_or_list(v) for k, v in search_space_opt.items()}
 
         if hasattr(batch_size, "__len__"):
             bs = random.choice(batch_size)
@@ -111,7 +129,15 @@ def random_search(trainer: Trainer, max_iter: int, n_epochs: int, batch_size: in
 
         print(f"Random search it: [{it}/{max_iter}], {(time.monotonic()-start_time)/it:.2f}s per iteration")
 
-    results = pd.DataFrame(results, columns=(*hyp_names, VAL_LOSS, VAL_ACC)).set_index(hyp_names)
+
+    results = pd.DataFrame(results, columns=(*hyp_names, VAL_LOSS, VAL_ACC))
+    if "betas" in hyp_names:
+        results[["beta1", "beta2"]] = pd.DataFrame(results["betas"].to_list())
+        results.drop("betas", axis=1, inplace=True)
+        hyp_names.remove("betas")
+        hyp_names.extend(["beta1", "beta2"])
+
+    results.set_index(hyp_names, inplace=True)
 
     print("The best hyperparameter set is:")
     print(results.sort_values(VAL_LOSS).iloc[0])
@@ -168,9 +194,14 @@ def plot_1d_results(results_df: pd.DataFrame, metric=VAL_LOSS) -> tuple[plt.Figu
 
 if __name__ == "__main__":
 
-    trainer = Trainer.standard_init()
+    trainer = Trainer.standard_init(torch.optim.AdamW, 
+                                    scheduler_class=torch.optim.lr_scheduler.CosineAnnealingLR, scheduler_params={"T_max": 150})
 
-    results = random_search(trainer, max_iter=10, n_epochs=3, batch_size=256, 
-                            search_space={"lr": (0.0001, 0.01)}, folder="hyper", save_every=5)
+    search_space = {"lr": SearchSpace(1e-5, 1e-2, log_scale=True), 
+                    "weight_decay": SearchSpace(1e-6, 1e-2, True),
+                    "betas": [SearchSpace(0.8, 0.95), SearchSpace(0.95, 0.999)]}
+
+    results = random_search(trainer, max_iter=2, n_epochs=1, batch_size=256, 
+                            search_space_opt=search_space, folder="hyper", save_every=5)
 
     print(results)
