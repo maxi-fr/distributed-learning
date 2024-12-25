@@ -6,15 +6,18 @@ from datetime import datetime
 class Checkpoint:
 
     def __init__(self, folder: str ="Checkpoints"):
+        self.reset_checkpoint()
+
+        if not os.path.isdir(folder):
+            os.makedirs(folder)
+        self.folder = folder
+
+    def reset_checkpoint(self):
         self.epoch = 0
         self.train_loss = []
         self.train_acc = []
         self.eval_loss = []
         self.eval_acc = []
-
-        if not os.path.isdir(folder):
-            os.makedirs(folder)
-        self.folder = folder
 
     @classmethod
     def from_saved(cls, model: torch.nn.Module, optimizer: torch.optim.Optimizer, folder="Checkpoints"):

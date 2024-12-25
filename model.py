@@ -1,10 +1,12 @@
+import time
 import torch
+from torch import nn
+import copy
 from torch.utils.data import DataLoader, Dataset
-from torch.nn import Module
 from torch.optim import Optimizer
-import torch.nn as nn
-from tqdm import tqdm
-
+import copy
+from torch.utils.data import DataLoader, random_split
+from torchvision import datasets, transforms
 from checkpoint import Checkpoint
 
 
@@ -56,18 +58,33 @@ class LeNet5(nn.Module):
         return out
 
 
-    def fit(self, train_loader: DataLoader, n_epochs: int, 
-            criterion: Module, optimizer: Optimizer, device, eval_data=None, 
-            cp: Checkpoint= None, save_every: int|None =None):
+class Trainer:
+
+    def __init__(self, training_data: Dataset, validation_data: Dataset, model: nn.Module, optimizer_class: Optimizer, 
+                 optimizer_params: dict, device, verbose=True):
+        self.training_data = training_data
+        self.validation_data = validation_data
+
+        self.model = model
+        self._model_copy = copy.deepcopy(model)
+        
+        self.optimizer: Optimizer = optimizer_class(model.parameters(), **optimizer_params)
+
+        self._optimizer_class = optimizer_class
+        self._optimizer_params = copy.deepcopy(optimizer_params)
+
+        self.device = device
+        self.criterion = nn.CrossEntropyLoss()
+        self.verbose = verbose
+
+    def train_model(self, batch_size: int, n_epochs: int, eval_data: Dataset = None, 
+                    cp: Checkpoint = None, save_every: int = None):
         """
         Trains the model on the given training dataset.
 
         Args:
-            train_loader (DataLoader): Dataloader for the training dataset.
+            batch_size (int): Number of batches into which the dataset is split.
             n_epochs (int): Number of training epochs.
-            criterion (torch.nn.Module): Loss function.
-            optimizer (torch.optim.Optimizer): Optimizer for updating model parameters.
-            device (torch.device): Device to train on ('cuda' or 'cpu').
             eval_data (torch.utils.data.Dataset, optional): Evaluation dataset. Default is None.
             cp (Checkpoint, optional): If training is supposed to start from a saved Checkpoint it can be passed through cp. 
             save_every (int, optional): Number of epochs between saving checkpoints
@@ -79,28 +96,35 @@ class LeNet5(nn.Module):
                 - eval_acc (list): Evaluation accuracy per epoch (if `eval_data` is provided, otherwise empty list).
         """
 
+        train_loader = DataLoader(self.training_data, batch_size, shuffle=True)
+
         if cp is None:
             cp = Checkpoint()
 
-        for epoch in tqdm(range(cp.epoch, n_epochs), desc="Training progress"):
-            self.train() 
+        start_epoch = cp.epoch
+        if self.verbose:
+            start_time = time.monotonic()
+            print(f"Training progress: [0/{n_epochs-start_epoch}]")
+
+        for epoch in range(start_epoch, n_epochs):
+            self.model.train()
 
             running_loss = 0.0
             correct = 0
             total = 0
 
             for images, labels in train_loader:
-                images, labels = images.to(device), labels.to(device)
+                images, labels = images.to(self.device, copy=False), labels.to(self.device, copy=False)
                 batch_size = labels.size(0)
 
                 # Forward pass
-                outputs = self(images)
-                loss = criterion(outputs, labels)
+                outputs = self.model(images)
+                loss = self.criterion(outputs, labels)
 
                 # Backward pass and optimization
-                optimizer.zero_grad()
+                self.optimizer.zero_grad()
                 loss.backward()
-                optimizer.step()
+                self.optimizer.step()
 
                 # Accumulate loss and accuracy
                 running_loss += loss.item() * batch_size
@@ -108,51 +132,53 @@ class LeNet5(nn.Module):
                 _, predicted = torch.max(outputs.data, 1)
                 correct += (predicted == labels).sum().item()
 
-
-            cp.train_loss.append(running_loss / total) 
-            cp.train_acc.append(correct / total) 
+            cp.train_loss.append(running_loss / total)
+            cp.train_acc.append(correct / total)
 
             if eval_data is not None:
-                e_loss, e_acc = self.evaluate(eval_data, criterion, device)
+                e_loss, e_acc = self.evaluate(eval_data)
                 cp.eval_loss.append(e_loss)
                 cp.eval_acc.append(e_acc)
 
             if save_every is not None:
                 if (epoch + 1) % save_every == 0:
                     cp.epoch = epoch
-                    cp.save(self, optimizer) 
-            
+                    cp.save(self.model, self.optimizer)
+
+            if self.verbose:
+                print(f"Training progress: [{(epoch+1)-start_epoch}/{n_epochs-start_epoch}], {(time.monotonic()-start_time)/((epoch+1)-start_epoch):.2f}s per epoch")
 
         return cp.train_loss, cp.train_acc, cp.eval_loss, cp.eval_acc
 
 
-    def evaluate(self, eval_data: Dataset, criterion, device):
+    def evaluate(self, eval_data: Dataset=None):
         """
         Evaluates the model on the given dataset.
 
         Args:
             eval_data (torch.utils.data.Dataset): Evaluation dataset.
-            criterion (torch.nn.Module): Loss function.
-            device (torch.device): Device to evaluate on ('cuda' or 'cpu').
 
         Returns:
             tuple: Contains:
                 - av_loss (float): Average loss over the evaluation dataset.
                 - accuracy (float): Accuracy over the evaluation dataset.
         """
-        eval_data_loader = DataLoader(eval_data, batch_size=256, shuffle=False)
+        if eval_data is None:
+            eval_data = self.validation_data
 
-        self.eval()
+        eval_data_loader = DataLoader(eval_data, batch_size=8192, shuffle=False)
+
+        self.model.eval()
         correct = 0
         running_loss = 0
 
         with torch.no_grad():
             for images, labels in eval_data_loader:
-                images, labels = images.to(device), labels.to(device)
+                images, labels = images.to(self.device), labels.to(self.device)
 
                 # Forward pass
-                outputs = self(images)
-                loss = criterion(outputs, labels)
+                outputs = self.model(images)
+                loss = self.criterion(outputs, labels)
 
                 # Accumulate loss and accuracy
                 running_loss += loss.item() * labels.size(0)
@@ -162,11 +188,34 @@ class LeNet5(nn.Module):
         av_loss = running_loss / len(eval_data)
         accuracy = correct / len(eval_data)
 
-        print(f"Evaluation loss:     {av_loss}")
-        print(f"Evaluation accuracy: {100 * accuracy:.2f}%")
+        if self.verbose:
+            print(f"Evaluation loss:     {av_loss}")
+            print(f"Evaluation accuracy: {100 * accuracy:.2f}%")
 
         return av_loss, accuracy
 
+    def reset_model(self, optimizer_params: dict=None):
+        self.model: nn.Module = copy.deepcopy(self._model_copy) 
+
+        if optimizer_params is None:
+            optimizer_params = self._optimizer_params
+
+        self.optimizer = self._optimizer_class(self.model.parameters(), **optimizer_params)
+
+    @classmethod
+    def standard_init(cls, optimizer_class= torch.optim.Adam, optimizer_params = {"lr": 0.001}):
+
+        full_train_dataset = datasets.CIFAR100(root='./data', train=True, download=True, transform=transforms.ToTensor())
+        
+        train_size = 0.8  # 80% for training
+        val_size = 1 - train_size  # 20% for validation
+
+        train_dataset, val_dataset = random_split(full_train_dataset, (train_size, val_size))
+
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model = LeNet5(num_classes=100).to(device)
+
+        return cls(train_dataset, val_dataset, model, optimizer_class, optimizer_params, device)
 
 if __name__ == "__main__":
     model = LeNet5(num_classes=100)

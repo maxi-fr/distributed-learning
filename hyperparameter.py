@@ -1,14 +1,18 @@
+import copy
 import os
 import random
+import time
 from matplotlib import pyplot as plt
 import numpy as np
-import pandas as pd 
-import torch.optim as optim
-from tqdm import tqdm
+import pandas as pd
+import copy
 
 from checkpoint import Checkpoint
-from model import LeNet5
+from model import LeNet5, Trainer
 
+
+VAL_LOSS = "validation_loss"
+VAL_ACC = "validation_acc"
 
 def sample_uniform(inp):
     if np.squeeze(inp).ndim == 1:
@@ -18,9 +22,8 @@ def sample_uniform(inp):
 
     return out
 
-def random_search(max_iter: int, search_space: dict, folder: str, 
-                  model_class, train_loader, n_epochs, criterion, 
-                  optimizer_class, device, eval_data, save_every=None):
+def random_search(trainer: Trainer, max_iter: int, n_epochs: int, batch_size: int,
+                  search_space: dict, folder: str, save_every=None):
     """
     Performs grid search for a general optimizer with logging for each parameter combination.
 
@@ -39,55 +42,62 @@ def random_search(max_iter: int, search_space: dict, folder: str,
     Returns:
         pd.DataFrame: Dataframe containing all parameter combinations and corresponding metrics.
     """
+    trainer.verbose = False
+
     cp_folder = os.path.join(folder, "Checkpoints")
     if not os.path.isdir(cp_folder):
         os.makedirs(cp_folder)
 
+    cp = Checkpoint(cp_folder)
+
+
     save_path = os.path.join(folder, "random_search_results.csv")
 
+    start_time = time.monotonic()
+    print(f"Random search it: [0/{max_iter}]")
+
     results = []
-    for it in tqdm(range(max_iter), f"Hyperparameter search {optimizer_class}"):
+    for it in range(1, max_iter+1):
 
         params = {k: sample_uniform(v) for k, v in search_space.items()}
-        print(f"\nTesting parameters: {params}")
+        print(f"Testing parameters: {params} for {trainer._optimizer_class}")
 
-        model: LeNet5 = model_class()
-        optimizer = optimizer_class(model.parameters(), **params)
-
-        cp = Checkpoint(cp_folder)
-        model.fit(train_loader, n_epochs, criterion, optimizer, device, cp=cp, save_every=save_every)
+        trainer.reset_model(params)
+        cp.reset_checkpoint()
         cp.clear_folder()
-        
-        
-        final_eval_loss, final_eval_accuracy = model.evaluate(eval_data, criterion, device)
 
-    
+        trainer.train_model(batch_size, n_epochs, cp=cp, save_every=save_every)
+
+        final_eval_loss, final_eval_accuracy = trainer.evaluate()
+
         results.append((*params.values(), final_eval_loss, final_eval_accuracy))
+        pd.DataFrame(results, columns=(*params.keys(), VAL_LOSS, VAL_ACC)).to_csv(save_path)
 
-        pd.DataFrame(results, columns=(*params.keys(), "eval_loss", "eval_acc")).to_csv(save_path)
+        print(f"Random search it: [{it}/{max_iter}], {(time.monotonic()-start_time)/it:.2f}s per iteration")
 
-    results = pd.DataFrame(results, columns=(*params.keys(), "eval_loss", "eval_acc"))
+
+    results = pd.DataFrame(results, columns=(*params.keys(), VAL_LOSS, VAL_ACC))
 
     print("The best hyperparameter set is:")
-    print(results.sort_values("eval_loss").iloc[0])
+    print(results.sort_values(VAL_LOSS).iloc[0])
     print("and for accuracy:")
-    print(results.sort_values("eval_acc").iloc[0])
-    
-    return results
-    
+    print(results.sort_values(VAL_ACC).iloc[0])
 
-def plot_2d_results(results_df, metric="eval_acc"):
+    return results
+
+
+def plot_2d_results(results_df, metric=VAL_LOSS):
     params = results_df.columns[:-2]
 
     fig, axss = plt.subplots(len(params), len(params), sharex="col", sharey="row")
 
     # fig.suptitle(metric)
     for i, (axs, x_param) in enumerate(zip(axss, params)):
-        for j in range(len(params)): 
+        for j in range(len(params)):
             ax = axs[j]
-            if j >= i: 
+            if j >= i:
                 ax.set_visible(False)
-            else: 
+            else:
                 y_param = params[j]
                 heatmap_data = results_df.pivot_table(index=x_param, columns=y_param, values=metric)
                 im = ax.imshow(heatmap_data, aspect="auto", cmap="viridis")
@@ -100,10 +110,11 @@ def plot_2d_results(results_df, metric="eval_acc"):
                 ax.set_yticklabels(heatmap_data.index)
     return fig, ax
 
-def plot_1d_results(results_df: pd.DataFrame, metric="eval_loss"):
+
+def plot_1d_results(results_df: pd.DataFrame, metric=VAL_LOSS):
     params = results_df.iloc[:, :-2]
 
-    fig, axs = plt.subplots(len(params.columns)) 
+    fig, axs = plt.subplots(len(params.columns))
 
     for ax, col in zip(axs, params):
         ax.scatter(params[col], results_df[metric])
@@ -114,34 +125,16 @@ def plot_1d_results(results_df: pd.DataFrame, metric="eval_loss"):
     return fig, ax
 
 
-
-
 if __name__ == "__main__":
     import torch
     import torch.nn as nn
     import torch.optim as optim
     from torch.utils.data import DataLoader, random_split
     from torchvision import datasets, transforms
-    
-    full_train_dataset = datasets.CIFAR100(root='./data', train=True, download=True, transform=transforms.ToTensor())
 
-    train_size = 0.8  # 80% for training
-    val_size = 1 - train_size  # 20% for validation
+    trainer = Trainer.standard_init()
 
-    train_dataset, val_dataset = random_split(full_train_dataset, (train_size, val_size))
-
-    train_loader = DataLoader(dataset=train_dataset, batch_size=64, shuffle=True)
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = LeNet5(num_classes=100).to(device)
-
-    criterion = nn.CrossEntropyLoss()
-    
-    optimizer_class = optim.SGD
-
-    search_space = {"lr": (0.0001, 0.01), "momentum": (0, 0.9)}
-
-
-    results = random_search(10, search_space, "hyper", LeNet5, train_loader, 3, criterion, optimizer_class, device, val_dataset)
+    results = random_search(trainer, max_iter=10, n_epochs=3, batch_size=256, 
+                            search_space={"lr": (0.0001, 0.01)}, folder="hyper", save_every=5)
 
     print(results)
