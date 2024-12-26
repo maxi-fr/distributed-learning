@@ -63,3 +63,60 @@ class LAMB(torch.optim.Optimizer):
     def step(self):
         pass
         # update params
+
+
+class SlowMo(Optimizer):
+    def __init__(self, params, lr=0.01, momentum=0.9):
+        if lr <= 0.0:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        if momentum < 0.0 or momentum >= 1.0:
+            raise ValueError(f"Invalid momentum value: {momentum}")
+
+        defaults = dict(lr=lr, momentum=momentum)
+        super().__init__(params, defaults)
+
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            loss = closure()
+
+        for group in self.param_groups:
+            lr = group['lr']
+            momentum = group['momentum']
+
+            for p in group['params']:
+                state = self.state[p]
+
+                if 'momentum_buffer' not in state:
+                    state['momentum_buffer'] = torch.zeros_like(p.data)
+                    state['prev_param'] = p.data.clone()
+
+                buf = state['momentum_buffer']
+                prev_param = state['prev_param']
+
+                # Compute the parameter difference (Δθ_t)
+                param_diff = p.data - prev_param
+
+                # Update the momentum buffer: u_t = β * u_{t-1} + Δθ_t
+                buf.mul_(momentum).add_(param_diff)
+
+                # Update parameters: θ_t = θ_t - η * v_t
+                p.data.add_(-lr, buf)
+
+                state['prev_param'].copy_(p.data)
+
+        return loss
+
+
+class DoNothing(Optimizer):
+
+    def __init__(self, params, defaults):
+        super().__init__(params, defaults)
+
+    def step(self, bla=None):
+        pass
+
+
+def average_optimizers(opts: list[Optimizer]) -> None:
+    #TODO
+    pass

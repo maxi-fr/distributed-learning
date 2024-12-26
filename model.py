@@ -1,3 +1,4 @@
+import torch.nn as nn
 import time
 from typing import Type
 import torch
@@ -10,6 +11,7 @@ import copy
 from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms
 from checkpoint import Checkpoint
+from optimizers import LARS
 
 
 """
@@ -27,45 +29,99 @@ for simplicity. The client batch size is 32 for Landmarks-User-160k and 64 for
 others.
 """
 
+CONV1_CH = 64
+CONV2_CH = 64
+
+LIN1_CH = 384
+LIN2_CH = 192
 
 class LeNet5(nn.Module):
-    def __init__(self, num_classes=100):  # Default is 10 classes (e.g., for MNIST or CIFAR-10)
+    def __init__(self, num_classes=100): 
         super(LeNet5, self).__init__()
 
         self._feature_extractor = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=6, kernel_size=5, stride=1, padding=2),
+            nn.Conv2d(in_channels=3, out_channels=CONV1_CH, kernel_size=5, stride=1, padding=2),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(in_channels=6, out_channels=16, kernel_size=5, stride=1, padding=0),
+            nn.Conv2d(in_channels=CONV1_CH, out_channels=CONV2_CH, kernel_size=5, stride=1, padding=0),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
 
         self._classifier = nn.Sequential(
-            nn.Linear(in_features=16 * 6 * 6, out_features=120),
+            nn.Linear(in_features=CONV2_CH * 6 * 6, out_features=LIN1_CH),
             nn.ReLU(),
-            nn.Linear(in_features=120, out_features=84),
+            nn.Linear(in_features=LIN1_CH, out_features=LIN2_CH),
             nn.ReLU(),
-            nn.Linear(in_features=84, out_features=num_classes)
+            nn.Linear(in_features=LIN2_CH, out_features=num_classes)
         )
 
         self._softmax = nn.Softmax(dim=1)
-    
+
     def forward(self, x, apply_softmax=False):
         x = self._feature_extractor(x)
         x = torch.flatten(x, start_dim=1)
         x = self._classifier(x)
-        
+
         if apply_softmax:
             x = self._softmax(x)
-        
+
         return x
+
+
+def average_model_params(out: nn.Module, inp: list[nn.Module]) -> None:
+    """
+    Averages the parameters of a list of models and stores the result in the output model.
+
+    Args:
+        out (nn.Module): The model where the averaged parameters will be stored.
+        inp (list[nn.Module]): A list of models whose parameters will be averaged.
+    """
+    if not inp:
+        raise ValueError("The list of input models is empty.")
+
+    for i in range(1, len(inp)):
+        if len(list(inp[0].parameters())) != len(list(inp[i].parameters())):
+            raise ValueError("All models must have the same structure.")
+
+    for out_param, *inp_params in zip(out.parameters(), *[m.parameters() for m in inp]):
+
+        if not all(out_param.shape == inp_param.shape for inp_param in inp_params):
+            raise ValueError("Mismatch in parameter shapes among models.")
+
+        avg_param = torch.mean(torch.stack([inp_param.data for inp_param in inp_params]), dim=0)
+
+        out_param.data.copy_(avg_param)
+
+def set_model_params(out: list[nn.Module], inp: nn.Module) -> None:
+    """
+    Sets the parameters of all models in the list to match the parameters of the input model.
+
+    Args:
+        out (list[nn.Module]): A list of models whose parameters will be updated.
+        inp (nn.Module): The input model whose parameters will be copied to the list of models.
+    """
+    if not out:
+        raise ValueError("The list of models is empty.")
+    
+    for model in out:
+        if len(list(model.parameters())) != len(list(inp.parameters())):
+            raise ValueError("Mismatch in the structure of models and the input model.")
+    
+    inp_params = list(inp.parameters())
+
+    for model in out:
+        for model_param, inp_param in zip(model.parameters(), inp_params):
+            if model_param.shape != inp_param.shape:
+                raise ValueError("Mismatch in parameter shapes between models and the input model.")
+            
+            model_param.data.copy_(inp_param.data)
 
 
 class Trainer:
 
-    def __init__(self, training_data: Dataset, validation_data: Dataset, model: nn.Module, optimizer_class: Type[Optimizer], 
-                 optimizer_params: dict, device, scheduler_class: Type[LRScheduler]=None, scheduler_params: dict=None,verbose=True):
+    def __init__(self, training_data: Dataset, validation_data: Dataset, model: nn.Module, optimizer_class: Type[Optimizer],
+                 optimizer_params: dict, device, scheduler_class: Type[LRScheduler] = None, scheduler_params: dict = None, verbose=True):
         """
         Initializes the Trainer class for managing the training and evaluation process of a neural network.
 
@@ -104,10 +160,10 @@ class Trainer:
 
         self.model = model
         self._model_copy = copy.deepcopy(model)
-        
+
         self.optimizer: Optimizer = optimizer_class(model.parameters(), **optimizer_params)
 
-        if scheduler_class is not None: 
+        if scheduler_class is not None:
             self.scheduler: LRScheduler = scheduler_class(self.optimizer, **scheduler_params)
 
         self._optimizer_class = optimizer_class
@@ -120,7 +176,7 @@ class Trainer:
         self.criterion = nn.CrossEntropyLoss()
         self.verbose = verbose
 
-    def train_model(self, batch_size: int, n_epochs: int, eval_data: Dataset = None, 
+    def train_model(self, batch_size: int, n_epochs: int, eval_data: Dataset = None,
                     cp: Checkpoint = None, save_every: int = None):
         """
         Trains the model on the given training dataset.
@@ -139,9 +195,9 @@ class Trainer:
                 - eval_acc (list): Evaluation accuracy per epoch (if `eval_data` is provided, otherwise empty list).
         """
 
-        train_loader = DataLoader(self.training_data, batch_size, shuffle=True)
-        
-        patience = 5 # parameters for early stopping
+        train_loader = DataLoader(self.training_data, batch_size, shuffle=True, pin_memory=True)
+
+        patience = 5  # parameters for early stopping
         delta = 1e-4
 
         self.model.train()
@@ -160,7 +216,7 @@ class Trainer:
             total = 0
 
             for images, labels in train_loader:
-                images, labels = images.to(self.device, copy=False), labels.to(self.device, copy=False)
+                images, labels = images.to(self.device, non_blocking=True), labels.to(self.device, non_blocking=True)
                 batch_size = labels.size(0)
 
                 # Forward pass
@@ -182,7 +238,7 @@ class Trainer:
             cp.train_acc.append(correct / total)
 
             if eval_data is not None:
-                e_loss, e_acc = self.evaluate(eval_data)                
+                e_loss, e_acc = self.evaluate(eval_data)
                 cp.eval_loss.append(e_loss)
                 cp.eval_acc.append(e_acc)
                 self.model.train()
@@ -206,12 +262,11 @@ class Trainer:
                     cp.save(self.model, self.optimizer)
 
             if self.verbose:
-                print(f"Training progress: [{(epoch+1)-start_epoch}/{n_epochs-start_epoch}], {(time.monotonic()-start_time)/((epoch+1)-start_epoch):.2f}s per epoch")
+                print(f"Training progress: [{(epoch+1)-start_epoch}/{n_epochs - start_epoch}], {(time.monotonic()-start_time)/((epoch+1)-start_epoch):.2f}s per epoch")
 
         return cp.train_loss, cp.train_acc, cp.eval_loss, cp.eval_acc
 
-
-    def evaluate(self, eval_data: Dataset=None):
+    def evaluate(self, eval_data: Dataset = None):
         """
         Evaluates the model on the given dataset.
 
@@ -226,7 +281,7 @@ class Trainer:
         if eval_data is None:
             eval_data = self.validation_data
 
-        eval_data_loader = DataLoader(eval_data, batch_size=8192, shuffle=False)
+        eval_data_loader = DataLoader(eval_data, batch_size=16384, shuffle=False, pin_memory=True)
 
         self.model.eval()
         correct = 0
@@ -234,7 +289,7 @@ class Trainer:
 
         with torch.no_grad():
             for images, labels in eval_data_loader:
-                images, labels = images.to(self.device), labels.to(self.device)
+                images, labels = images.to(self.device, non_blocking=True), labels.to(self.device, non_blocking=True)
 
                 # Forward pass
                 outputs = self.model(images)
@@ -254,8 +309,8 @@ class Trainer:
 
         return av_loss, accuracy
 
-    def reset_model(self, optimizer_params: dict=None, scheduler_params: dict=None):
-        self.model: nn.Module = copy.deepcopy(self._model_copy) 
+    def reset_model(self, optimizer_params: dict = None, scheduler_params: dict = None):
+        self.model: nn.Module = copy.deepcopy(self._model_copy)
 
         if optimizer_params is None:
             optimizer_params = self._optimizer_params
@@ -269,8 +324,8 @@ class Trainer:
             self.scheduler = self._scheduler_class(self.optimizer, **scheduler_params)
 
     @classmethod
-    def standard_init(cls, optimizer_class=torch.optim.Adam, optimizer_params={"lr": 0.001}, 
-                    scheduler_class=None, scheduler_params=None):
+    def standard_init(cls, optimizer_class=torch.optim.Adam, optimizer_params={"lr": 0.001},
+                      scheduler_class=None, scheduler_params=None):
         """
         A standard initialization method for the Trainer class using the CIFAR-100 dataset 
         and the LeNet5 model. Configures the optimizer, scheduler, and splits the dataset 
@@ -300,7 +355,7 @@ class Trainer:
             )
         """
         full_train_dataset = datasets.CIFAR100(root='./data', train=True, download=True, transform=transforms.ToTensor())
-        
+
         train_size = 0.8  # 80% for training
         val_size = 1 - train_size  # 20% for validation
 
@@ -319,7 +374,6 @@ class Trainer:
             scheduler_class=scheduler_class,
             scheduler_params=scheduler_params
         )
-
 
 
 if __name__ == "__main__":
