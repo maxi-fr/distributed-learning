@@ -1,3 +1,4 @@
+from itertools import cycle
 import torch.nn as nn
 import time
 from typing import Type
@@ -118,9 +119,49 @@ def set_model_params(out: list[nn.Module], inp: nn.Module) -> None:
             model_param.data.copy_(inp_param.data)
 
 
+def evaluate_model(model, eval_data: Dataset, criterion, device, verbose=True):
+    """
+    Evaluates the model on the given dataset.
+
+    Args:
+        eval_data (torch.utils.data.Dataset): Evaluation dataset.
+
+    Returns:
+        tuple: Contains:
+            - av_loss (float): Average loss over the evaluation dataset.
+            - accuracy (float): Accuracy over the evaluation dataset.
+    """
+    eval_data_loader = DataLoader(eval_data, batch_size=16384, shuffle=False, pin_memory=True)
+
+    model.eval()
+    correct = 0
+    running_loss = 0
+
+    with torch.no_grad():
+        for images, labels in eval_data_loader:
+            images, labels = images.to(device, non_blocking=True), labels.to(device, non_blocking=True)
+
+            # Forward pass
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+
+            # Accumulate loss and accuracy
+            running_loss += loss.item() * labels.size(0)
+            _, predicted = torch.max(outputs.data, 1)
+            correct += (predicted == labels).sum().item()
+
+    av_loss = running_loss / len(eval_data)
+    accuracy = correct / len(eval_data)
+
+    if verbose:
+        print(f"Evaluation loss:     {av_loss:.4f}")
+        print(f"Evaluation accuracy: {100 * accuracy:.2f}%")
+
+    return av_loss, accuracy
+
 class Trainer:
 
-    def __init__(self, training_data: Dataset, validation_data: Dataset, model: nn.Module, optimizer_class: Type[Optimizer],
+    def __init__(self, model: nn.Module, optimizer_class: Type[Optimizer],
                  optimizer_params: dict, device, scheduler_class: Type[LRScheduler] = None, scheduler_params: dict = None, verbose=True):
         """
         Initializes the Trainer class for managing the training and evaluation process of a neural network.
@@ -134,7 +175,7 @@ class Trainer:
             device (torch.device): The device on which to perform computations (`torch.device('cuda')` or `torch.device('cpu')`).
             scheduler_class (Type[torch.optim.lr_scheduler._LRScheduler], optional): 
                 The class of the learning rate scheduler to use (e.g., `torch.optim.lr_scheduler.CosineAnnealingLR`). 
-                Default is None. Scheduler gets updated every EPOCH
+                Default is None. Scheduler gets updated every batch
             scheduler_params (dict, optional): A dictionary of parameters to initialize the scheduler. Default is None.
             verbose (bool, optional): If True, prints progress and logs during training and evaluation. Default is True.
 
@@ -154,10 +195,6 @@ class Trainer:
             criterion (torch.nn.CrossEntropyLoss): The loss function used during training.
             verbose (bool): Indicates whether to print progress logs during training and evaluation.
         """
-
-        self.training_data = training_data
-        self.validation_data = validation_data
-
         self.model = model
         self._model_copy = copy.deepcopy(model)
 
@@ -176,17 +213,16 @@ class Trainer:
         self.criterion = nn.CrossEntropyLoss()
         self.verbose = verbose
 
-    def train_model(self, batch_size: int, n_epochs: int, eval_data: Dataset = None,
+    def train_model(self, train_loader: DataLoader, n_steps: int, eval_data: Dataset = None,
                     cp: Checkpoint = None, save_every: int = None):
         """
         Trains the model on the given training dataset.
 
         Args:
-            batch_size (int): Number of batches into which the dataset is split.
+            train_loader (works like: DataLoader): Returns a batch of training data when next is called on it.
             n_epochs (int): Number of training epochs.
             eval_data (torch.utils.data.Dataset, optional): Evaluation dataset. Default is None.
-            cp (Checkpoint, optional): If training is supposed to start from a saved Checkpoint it can be passed through cp. 
-            save_every (int, optional): Number of epochs between saving checkpoints
+
         Returns:
             tuple: Contains four lists:
                 - train_loss (list): Training loss per epoch.
@@ -195,47 +231,38 @@ class Trainer:
                 - eval_acc (list): Evaluation accuracy per epoch (if `eval_data` is provided, otherwise empty list).
         """
 
-        train_loader = DataLoader(self.training_data, batch_size, shuffle=True, pin_memory=True)
-
-        patience = 5  # parameters for early stopping
-        delta = 1e-4
+        # patience = 5  # parameters for early stopping
+        # delta = 1e-4
 
         self.model.train()
 
         if cp is None:
             cp = Checkpoint()
 
-        start_epoch = cp.epoch
         if self.verbose:
             start_time = time.monotonic()
-            print(f"Training progress: [0/{n_epochs-start_epoch}]")
+            print(f"Training progress: [0/{n_steps}]")
 
-        for epoch in range(start_epoch, n_epochs):
-            running_loss = 0.0
-            correct = 0
-            total = 0
+        for step in range(n_steps):
+            images, labels = next(train_loader)
+            images, labels = images.to(self.device, non_blocking=True), labels.to(self.device, non_blocking=True)
+            
+            batch_size = labels.size(0)
 
-            for images, labels in train_loader:
-                images, labels = images.to(self.device, non_blocking=True), labels.to(self.device, non_blocking=True)
-                batch_size = labels.size(0)
+            # Forward pass
+            outputs = self.model(images)
+            loss = self.criterion(outputs, labels)
 
-                # Forward pass
-                outputs = self.model(images)
-                loss = self.criterion(outputs, labels)
+            # Backward pass and optimization
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
 
-                # Backward pass and optimization
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
+            _, predicted = torch.max(outputs.data, 1)
+            correct = (predicted == labels).sum().item()
 
-                # Accumulate loss and accuracy
-                running_loss += loss.item() * batch_size
-                total += batch_size
-                _, predicted = torch.max(outputs.data, 1)
-                correct += (predicted == labels).sum().item()
-
-            cp.train_loss.append(running_loss / total)
-            cp.train_acc.append(correct / total)
+            cp.train_loss.append(loss.item() / batch_size)
+            cp.train_acc.append(correct / batch_size)
 
             if eval_data is not None:
                 e_loss, e_acc = self.evaluate(eval_data)
@@ -254,15 +281,15 @@ class Trainer:
                 self.scheduler.step()
                 if self.verbose:
                     current_lr = self.optimizer.param_groups[0]['lr']
-                    print(f"Epoch {epoch + 1}: Learning rate {current_lr:.6f}")
+                    print(f"Training step {step + 1}: Learning rate {current_lr:.6f}")
 
-            if save_every is not None:
-                if (epoch + 1) % save_every == 0:
-                    cp.epoch = epoch
-                    cp.save(self.model, self.optimizer)
+            # if save_every is not None:
+            #     if (step + 1) % save_every == 0:
+            #         cp.epoch = epoch
+            #         cp.save(self.model, self.optimizer)
 
             if self.verbose:
-                print(f"Training progress: [{(epoch+1)-start_epoch}/{n_epochs - start_epoch}], {(time.monotonic()-start_time)/((epoch+1)-start_epoch):.2f}s per epoch")
+                print(f"Training progress: [{(step+1)}/{n_steps}], {(time.monotonic()-start_time)/((step+1)):.2f}s per step (batch size: {batch_size})")
 
         return cp.train_loss, cp.train_acc, cp.eval_loss, cp.eval_acc
 
@@ -281,33 +308,8 @@ class Trainer:
         if eval_data is None:
             eval_data = self.validation_data
 
-        eval_data_loader = DataLoader(eval_data, batch_size=16384, shuffle=False, pin_memory=True)
+        return evaluate_model(self.model, eval_data, self.criterion, self.device, self.verbose)
 
-        self.model.eval()
-        correct = 0
-        running_loss = 0
-
-        with torch.no_grad():
-            for images, labels in eval_data_loader:
-                images, labels = images.to(self.device, non_blocking=True), labels.to(self.device, non_blocking=True)
-
-                # Forward pass
-                outputs = self.model(images)
-                loss = self.criterion(outputs, labels)
-
-                # Accumulate loss and accuracy
-                running_loss += loss.item() * labels.size(0)
-                _, predicted = torch.max(outputs.data, 1)
-                correct += (predicted == labels).sum().item()
-
-        av_loss = running_loss / len(eval_data)
-        accuracy = correct / len(eval_data)
-
-        if self.verbose:
-            print(f"Evaluation loss:     {av_loss:.4f}")
-            print(f"Evaluation accuracy: {100 * accuracy:.2f}%")
-
-        return av_loss, accuracy
 
     def reset_model(self, optimizer_params: dict = None, scheduler_params: dict = None):
         self.model: nn.Module = copy.deepcopy(self._model_copy)
@@ -354,10 +356,12 @@ class Trainer:
                 scheduler_params={"step_size": 10, "gamma": 0.1}
             )
         """
-        full_train_dataset = datasets.CIFAR100(root='./data', train=True, download=True, transform=transforms.ToTensor())
 
-        train_size = 0.8  # 80% for training
-        val_size = 1 - train_size  # 20% for validation
+        tran = transforms.Compose((transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))))
+        full_train_dataset = datasets.CIFAR100(root='./data', train=True, download=True, transform=tran)
+
+        train_size = int(0.8 * len(full_train_dataset))  # 80% for training
+        val_size = len(full_train_dataset) - train_size  # 20% for validation
 
         train_dataset, val_dataset = random_split(full_train_dataset, (train_size, val_size))
 
