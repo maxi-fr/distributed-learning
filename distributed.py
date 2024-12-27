@@ -24,7 +24,8 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     
 
     global_model = LeNet5()
-    global_optimizer = global_optimizer_class(global_model.parameters(), **global_optimizer_params)
+    global_optimizer = global_optimizer_class(global_model.parameters(), 
+                                              local_lr=local_optimizer_params["lr"], **global_optimizer_params)
 
     local_models = [tr.model for tr in trainers]
 

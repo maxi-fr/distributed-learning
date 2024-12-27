@@ -1,19 +1,15 @@
 from functools import partial
 import os
 import ray
-from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler
 import torch
 from torchvision import datasets, transforms
-from torch.utils.data import Dataset, random_split, DataLoader
-
+from torch.utils.data import random_split
 from ray import tune
-from ray.tune.schedulers import ASHAScheduler
 from ray.tune import CLIReporter
-from typing import Type
 
 from distributed import distributed_learning
 from model import evaluate_model
-from optimizers import SlowMo
+import experiments_config
 
 
 def load_data(data_dir=None, random_seed=69):
@@ -23,13 +19,11 @@ def load_data(data_dir=None, random_seed=69):
     if random_seed is not None:
         random_seed = torch.Generator().manual_seed(random_seed)
 
-
     tran = transforms.Compose((transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))))
     full_train_dataset = datasets.CIFAR100(root=data_dir, train=True, download=True, transform=tran)
 
     train_size = int(0.8 * len(full_train_dataset))  # 80% for training
     val_size = len(full_train_dataset) - train_size  # 20% for validation
-
 
     train_dataset, val_dataset = random_split(full_train_dataset, (train_size, val_size), random_seed)
 
@@ -88,57 +82,29 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
     return {"val_loss": val_loss, "val_acc": val_acc}
 
 
-
-# Define the hyperparameter search space
-def get_hyperparameter_search_space():
-    """
-    Returns the hyperparameter search space for Ray Tune.
-    """
-    return {
-        "n_workers": tune.grid_search([2, 4, 8]),
-        "n_epochs": 1,
-        "n_local_steps": tune.choice([1, 5, 10]),
-        "local_batch_size": tune.choice([32, 64, 128]),
-
-        "local_optimizer_class": torch.optim.SGD,
-        "local_opt.lr": tune.loguniform(1e-4, 1e-1),
-        "local_opt.momentum": tune.uniform(0.5, 0.9),
-
-        "global_optimizer_class": SlowMo,
-        "global_opt.lr": tune.loguniform(1e-4, 1e-1),
-        "global_opt.momentum": tune.uniform(0.8, 0.95),
-
-        "scheduler_class": CosineAnnealingLR,
-        "scheduler.T_max": 150
-        }
-
 def custom_trial_name(trial):
     return f"trial_{trial.trial_id}"
 
-# Main entry point
-if __name__ == "__main__":
 
-    search_space = get_hyperparameter_search_space()
+if __name__ == "__main__":
+    search_space = experiments_config.local_sgdw
 
     train_dataset, val_dataset = load_data()
 
     ray.init()
     train_data_obj_ref = ray.put((train_dataset, val_dataset))
 
-    reporter = CLIReporter(
-        metric_columns=["val_loss", "val_acc", "training_iteration"]
-    )
+    reporter = CLIReporter(metric_columns=["val_loss", "val_acc"])
 
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref),
         config=search_space,
-        num_samples=2, 
+        num_samples=2,
         progress_reporter=reporter,
-        storage_path=os.path.abspath("ray_results"),  
+        storage_path=os.path.abspath("ray_results"),
         max_concurrent_trials=1,
         trial_dirname_creator=custom_trial_name
     )
-
-    # Print the best hyperparameters
-    print("Best hyperparameters found: ", analysis.get_best_config("val_acc"))
+    
+    print("Best hyperparameters found: ", analysis.get_best_config("val_acc", mode="max"))
     print("Best validation accuracy: ", analysis.best_result["val_acc"])
