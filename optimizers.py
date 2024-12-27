@@ -101,7 +101,7 @@ class SlowMo(Optimizer):
                 buf.mul_(momentum).add_(param_diff)
 
                 # Update parameters: θ_t = θ_t - η * v_t
-                p.data.add_(-lr, buf)
+                p.data.add_(buf, alpha=-lr)
 
                 state['prev_param'].copy_(p.data)
 
