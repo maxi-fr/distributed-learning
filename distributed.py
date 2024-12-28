@@ -52,7 +52,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
 
             for i, trainer in enumerate(trainers):
                 data_loader = split_data[i]
-                losss = trainer.train_model(data_loader, n_local_steps)
+                train_loss, train_acc = trainer.train_model(data_loader, n_local_steps)
 
             average_model_params(global_model, local_models)
 
@@ -60,6 +60,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
 
         if verbose:
             print(f"Training progress: [{(epoch+1)}/{n_epochs}], {(time.monotonic()-start_time)/((epoch+1)):.2f}s per epoch")
+            print(f"Current training loss/acc: {train_loss.max().item():.3f}/{train_acc.max().item()*100:.2f}%")
 
     return global_model
 
