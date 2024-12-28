@@ -173,13 +173,13 @@ class LAMB(Optimizer):
 
 
 class SlowMo(Optimizer):
-    def __init__(self, params, lr=0.01, momentum=0.9):
+    def __init__(self, params, local_lr, lr=0.01, momentum=0.9):
         if lr <= 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
         if momentum < 0.0 or momentum >= 1.0:
             raise ValueError(f"Invalid momentum value: {momentum}")
 
-        defaults = dict(lr=lr, momentum=momentum)
+        defaults = dict(local_lr=local_lr, lr=lr, momentum=momentum)
         super().__init__(params, defaults)
 
     def step(self, closure=None):
@@ -188,6 +188,7 @@ class SlowMo(Optimizer):
             loss = closure()
 
         for group in self.param_groups:
+            local_lr = group["local_lr"]
             lr = group['lr']
             momentum = group['momentum']
 
@@ -198,17 +199,17 @@ class SlowMo(Optimizer):
                     state['momentum_buffer'] = torch.zeros_like(p.data)
                     state['prev_param'] = p.data.clone()
 
-                buf = state['momentum_buffer']
+                u = state['momentum_buffer']
                 prev_param = state['prev_param']
 
-                # Compute the parameter difference (Δθ_t)
-                param_diff = p.data - prev_param
+                # Compute the scaled parameter difference (Δθ_t)
+                param_diff = (p.data - prev_param)/local_lr
 
                 # Update the momentum buffer: u_t = β * u_{t-1} + Δθ_t
-                buf.mul_(momentum).add_(param_diff)
+                u.mul_(momentum).add_(param_diff)
 
-                # Update parameters: θ_t = θ_t - η * v_t
-                p.data.add_(-lr, buf)
+                # Update parameters: θ_t = θ_t - lr * local_lr * u_t
+                p.data.add_(u, alpha=-lr*local_lr)
 
                 state['prev_param'].copy_(p.data)
 
@@ -217,7 +218,7 @@ class SlowMo(Optimizer):
 
 class DoNothing(Optimizer):
 
-    def __init__(self, params, defaults):
+    def __init__(self, params, **defaults):
         super().__init__(params, defaults)
 
     def step(self, bla=None):

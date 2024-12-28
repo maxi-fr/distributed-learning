@@ -1,207 +1,110 @@
-import copy
-import math
+from functools import partial
 import os
-import random
-import time
-from matplotlib import pyplot as plt
-import numpy as np
-import pandas as pd
-import copy
-
+import ray
 import torch
+from torchvision import datasets, transforms
+from torch.utils.data import random_split
+from ray import tune
+from ray.tune import CLIReporter
 
-from checkpoint import Checkpoint
-from model import LeNet5, Trainer
-
-
-VAL_LOSS = "validation_loss"
-VAL_ACC = "validation_acc"
-
-class SearchSpace:
-
-    def __init__(self, lower_bound, upper_bound, log_scale=False):
-        self.interval = np.array((lower_bound, upper_bound))
-        self.log_scale = log_scale
-        if log_scale:
-            self.interval = np.log(self.interval)
-
-    def sample(self):
-        if self.log_scale:
-            return math.exp(random.uniform(*self.interval))
-        
-        return random.uniform(*self.interval)
+from distributed import distributed_learning
+from model import evaluate_model
+import experiments_config
 
 
-def sample_float_or_list(inp: SearchSpace|list[SearchSpace]) -> float|list[float]:
-    if isinstance(inp, SearchSpace):
-        out = inp.sample()
-    else:
-        out = [x.sample() for x in inp]
+def load_data(data_dir=None, random_seed=69):
+    if data_dir is None:
+        data_dir = os.path.abspath("./data")
 
-    return out
-def random_search(trainer: Trainer, max_iter: int, n_epochs: int, batch_size: int | list[int], 
-                  search_space_opt: dict[str, SearchSpace|list[SearchSpace]], folder: str, save_every=None) -> pd.DataFrame:
+    if random_seed is not None:
+        random_seed = torch.Generator().manual_seed(random_seed)
+
+    tran = transforms.Compose((transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))))
+    full_train_dataset = datasets.CIFAR100(root=data_dir, train=True, download=True, transform=tran)
+
+    train_size = int(0.8 * len(full_train_dataset))  # 80% for training
+    val_size = len(full_train_dataset) - train_size  # 20% for validation
+
+    train_dataset, val_dataset = random_split(full_train_dataset, (train_size, val_size), random_seed)
+
+    return train_dataset, val_dataset
+
+
+def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref):
     """
-    Perform random search over a defined hyperparameter space for training a model.
+    Wrapper for distributed learning to enable Ray Tune hyperparameter tuning.
 
     Args:
-        trainer (Trainer): 
-            An instance of the Trainer class used to manage model training and evaluation.
-        max_iter (int): 
-            The maximum number of hyperparameter combinations to sample and evaluate.
-        n_epochs (int): 
-            The number of training epochs for each hyperparameter configuration.
-        batch_size (int | list[int]): 
-            The batch size(s) to test. If a list is provided, one value is sampled per iteration.
-        search_space_opt (dict): 
-            A dictionary defining the hyperparameter space for optimization. 
-            Keys are hyperparameter names, and values are tuples defining the intervall of the possible parameters of the optimizer.
-        folder (str): 
-            Directory path to save training checkpoints and logs for each experiment.
-        save_every (int, optional): 
-            Frequency (in epochs) to save model checkpoints. Defaults to None, meaning no saves.
+        config (dict): Configuration containing hyperparameters to test.
 
     Returns:
-        pd.DataFrame: 
-            A DataFrame containing the results of the random search. Each row corresponds to a trial, and columns
-            include hyperparameters, training/validation loss, accuracy, and additional metrics for comparison.
-
-    Example:
-        ```python
-        trainer = Trainer(training_data, validation_data, model, optimizer_class, optimizer_params, device)
-
-        search_space = {
-            "lr": [0.0001, 0.1],
-            "momentum": [0, 0.9]
-        }
-
-        results = random_search(
-            trainer=trainer,
-            max_iter=20,
-            n_epochs=50,
-            batch_size=[32, 64, 128],
-            search_space_opt=search_space,
-            folder="./checkpoints",
-            save_every=10
-        )
-
-        print(results)
-        ```
+        None
     """
-    trainer.verbose = False
 
-    hyp_names = ["batch_size", *search_space_opt.keys()]
+    n_epochs = config.pop("n_epochs", 150)
+    n_workers = config.pop("n_workers", 1)
+    local_batch_size = config.pop("local_batch_size")
+    n_local_steps = config.pop("n_local_steps", 1)
 
-    cp_folder = os.path.join(folder, "Checkpoints")
-    if not os.path.isdir(cp_folder):
-        os.makedirs(cp_folder)
+    global_optimizer_class = config.pop("global_optimizer_class")
+    local_optimizer_class = config.pop("local_optimizer_class")
+    scheduler_class = config.pop("scheduler_class")
 
-    cp = Checkpoint(cp_folder)
+    local_optimizer_params = {}
+    global_optimizer_params = {}
+    scheduler_params = {}
 
+    for key, val in config.items():
+        (scope, param) = key.split(".")
+        if scope == "local_opt":
+            local_optimizer_params[param] = val
 
-    save_path = os.path.join(folder, "random_search_results.csv")
+        elif scope == "global_opt":
+            global_optimizer_params[param] = val
 
-    start_time = time.monotonic()
-    print(f"Random search it: [0/{max_iter}]")
-
-    results = []
-    for it in range(1, max_iter+1):
-
-        params_opt = {k: sample_float_or_list(v) for k, v in search_space_opt.items()}
-
-        if hasattr(batch_size, "__len__"):
-            bs = random.choice(batch_size)
+        elif scope == "scheduler":
+            scheduler_params[param] = val
         else:
-            bs = batch_size
+            raise KeyError("Wrong parameter in 'config' dict: ", scope, param)
 
-        print(f"Testing parameters: {params_opt} for {trainer._optimizer_class}")
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        trainer.reset_model(params_opt)
-        cp.reset_checkpoint()
-        cp.clear_folder()
+    train_dataset, val_dataset = ray.get(train_data_obj_ref)
 
-        trainer.train_model(bs, n_epochs, cp=cp, save_every=save_every)
+    global_model = distributed_learning(train_dataset, n_epochs, n_workers, n_local_steps, local_batch_size,
+                                        global_optimizer_class, global_optimizer_params,
+                                        local_optimizer_class, local_optimizer_params,
+                                        scheduler_class, scheduler_params, device)
 
-        final_eval_loss, final_eval_accuracy = trainer.evaluate()
+    criterion = torch.nn.CrossEntropyLoss()
+    val_loss, val_acc = evaluate_model(global_model, val_dataset, criterion, device, verbose=False)
 
-        results.append((bs, *params_opt.values(), final_eval_loss, final_eval_accuracy))
-        pd.DataFrame(results, columns=(*hyp_names, VAL_LOSS, VAL_ACC)).to_csv(save_path)
-
-        print(f"Random search it: [{it}/{max_iter}], {(time.monotonic()-start_time)/it:.2f}s per iteration")
-
-
-    results = pd.DataFrame(results, columns=(*hyp_names, VAL_LOSS, VAL_ACC))
-    if "betas" in hyp_names:
-        results[["beta1", "beta2"]] = pd.DataFrame(results["betas"].to_list())
-        results.drop("betas", axis=1, inplace=True)
-        hyp_names.remove("betas")
-        hyp_names.extend(["beta1", "beta2"])
-
-    results.set_index(hyp_names, inplace=True)
-
-    print("The best hyperparameter set is:")
-    print(results.sort_values(VAL_LOSS).iloc[0])
-    print("\nand for accuracy:")
-    print(results.sort_values(VAL_ACC).iloc[0])
-
-    return results
+    return {"val_loss": val_loss, "val_acc": val_acc}
 
 
-def plot_2d_results(results_df: pd.DataFrame, metric=VAL_LOSS) -> tuple[plt.Figure, plt.Axes]:
-    params = results_df.index.names
-
-    fig, axss = plt.subplots(len(params), len(params), sharex="col", sharey="row")
-
-    # fig.suptitle(metric)
-    for i, (axs, x_param) in enumerate(zip(axss, params)):
-        for j in range(len(params)):
-            ax = axs[j]
-            if j >= i:
-                ax.set_visible(False)
-            else:
-                y_param = params[j]
-                heatmap_data = results_df.pivot_table(index=x_param, columns=y_param, values=metric)
-                vmin = results_df[metric].min()
-                vmax = results_df[metric].max()
-                im = ax.imshow(heatmap_data, aspect="auto", cmap="viridis", vmin=vmin, vmax=vmax)
-
-                ax.set_xlabel(y_param)
-                ax.set_ylabel(x_param)
-                ax.set_xticks(range(len(heatmap_data.columns)))
-                ax.set_xticklabels(heatmap_data.columns, rotation=90)
-                ax.set_yticks(range(len(heatmap_data.index)))
-                ax.set_yticklabels(heatmap_data.index)
-    return fig, ax
-
-
-def plot_1d_results(results_df: pd.DataFrame, metric=VAL_LOSS) -> tuple[plt.Figure, plt.Axes]:
-    params = results_df.index.names
-
-    results_df = results_df.reset_index()
-
-    fig, axs = plt.subplots(len(params))
-
-    for ax, col in zip(axs, params):
-        results_df.sort_values(col, inplace=True)
-        ax.plot(results_df[col], results_df[metric], marker="x")
-        ax.set_xlabel(col)
-        ax.grid()
-    fig.supylabel(metric)
-    fig.tight_layout()
-
-    return fig, ax
+def custom_trial_name(trial):
+    return f"trial_{trial.trial_id}"
 
 
 if __name__ == "__main__":
+    search_space = experiments_config.local_sgdw
 
-    trainer = Trainer.standard_init(torch.optim.AdamW, 
-                                    scheduler_class=torch.optim.lr_scheduler.CosineAnnealingLR, scheduler_params={"T_max": 150})
+    train_dataset, val_dataset = load_data()
 
-    search_space = {"lr": SearchSpace(1e-5, 1e-2, log_scale=True), 
-                    "weight_decay": SearchSpace(1e-6, 1e-2, True),
-                    "betas": [SearchSpace(0.8, 0.95), SearchSpace(0.95, 0.999)]}
+    ray.init()
+    train_data_obj_ref = ray.put((train_dataset, val_dataset))
 
-    results = random_search(trainer, max_iter=2, n_epochs=1, batch_size=256, 
-                            search_space_opt=search_space, folder="hyper", save_every=5)
+    reporter = CLIReporter(metric_columns=["val_loss", "val_acc"])
 
-    print(results)
+    analysis = tune.run(
+        partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref),
+        config=search_space,
+        num_samples=2,
+        progress_reporter=reporter,
+        storage_path=os.path.abspath("ray_results"),
+        max_concurrent_trials=1,
+        trial_dirname_creator=custom_trial_name
+    )
+    
+    print("Best hyperparameters found: ", analysis.get_best_config("val_acc", mode="max"))
+    print("Best validation accuracy: ", analysis.best_result["val_acc"])
