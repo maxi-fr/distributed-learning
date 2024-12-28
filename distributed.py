@@ -73,6 +73,7 @@ def get_workers(n_workers: int, local_optimizer_class: Type[Optimizer], local_op
 
     for i in range(n_workers):
         model = LeNet5()
+        model.to(device)
 
         trainers.append(Trainer(model, local_optimizer_class, local_optimizer_params,
                                 device, scheduler_class, scheduler_params, verbose=False))

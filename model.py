@@ -195,7 +195,7 @@ class Trainer:
             criterion (torch.nn.CrossEntropyLoss): The loss function used during training.
             verbose (bool): Indicates whether to print progress logs during training and evaluation.
         """
-        self.model = model
+        self.model = model.to(device)
         self._model_copy = copy.deepcopy(model)
 
         self.optimizer: Optimizer = optimizer_class(model.parameters(), **optimizer_params)
@@ -315,7 +315,7 @@ class Trainer:
 
 
     def reset_model(self, optimizer_params: dict = None, scheduler_params: dict = None):
-        self.model: nn.Module = copy.deepcopy(self._model_copy)
+        self.model: nn.Module = copy.deepcopy(self._model_copy).to(self.device)
 
         if optimizer_params is None:
             optimizer_params = self._optimizer_params
