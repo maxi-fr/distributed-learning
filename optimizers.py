@@ -132,11 +132,10 @@ def average_optimizers(opts: list[Optimizer]) -> None:
 
 
     for x in zip(*states):
-        print(x)
         mean = torch.mean(torch.stack(x), dim=0)
         
         for state in x:
-            state[:] = mean
+            state.copy_(mean)
 
 def flatten_dict(d: dict) -> list:
     """

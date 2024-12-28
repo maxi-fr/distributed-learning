@@ -1,4 +1,5 @@
 from itertools import cycle
+import os
 import torch.nn as nn
 import time
 from typing import Type
@@ -11,7 +12,6 @@ from torch.optim.lr_scheduler import LRScheduler
 import copy
 from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms
-from checkpoint import Checkpoint
 from optimizers import LARS
 
 
@@ -213,8 +213,7 @@ class Trainer:
         self.criterion = nn.CrossEntropyLoss()
         self.verbose = verbose
 
-    def train_model(self, train_loader: DataLoader, n_steps: int, eval_data: Dataset = None,
-                    cp: Checkpoint = None, save_every: int = None):
+    def train_model(self, train_loader: DataLoader, n_steps: int, eval_data: Dataset = None):
         """
         Trains the model on the given training dataset.
 
@@ -224,11 +223,11 @@ class Trainer:
             eval_data (torch.utils.data.Dataset, optional): Evaluation dataset. Default is None.
 
         Returns:
-            tuple: Contains four lists:
-                - train_loss (list): Training loss per epoch.
-                - train_acc (list): Training accuracy per epoch.
-                - eval_loss (list): Evaluation loss per epoch (if `eval_data` is provided otherwise empty list).
-                - eval_acc (list): Evaluation accuracy per epoch (if `eval_data` is provided, otherwise empty list).
+            tuple: Contains two or four tensors:
+                - train_loss (torch.Tensor): Training loss per epoch.
+                - train_acc (torch.Tensor): Training accuracy per epoch.
+                - eval_loss (torch.Tensor): Evaluation loss per epoch (if `eval_data` is provided).
+                - eval_acc (torch.Tensor): Evaluation accuracy per epoch (if `eval_data` is provided).
         """
 
         # patience = 5  # parameters for early stopping
@@ -236,8 +235,10 @@ class Trainer:
 
         self.model.train()
 
-        if cp is None:
-            cp = Checkpoint()
+        train_loss = torch.empty(n_steps)
+        train_acc = torch.empty(n_steps)
+        eval_loss = torch.empty(n_steps)
+        eval_acc = torch.empty(n_steps)
 
         if self.verbose:
             start_time = time.monotonic()
@@ -261,13 +262,13 @@ class Trainer:
             _, predicted = torch.max(outputs.data, 1)
             correct = (predicted == labels).sum().item()
 
-            cp.train_loss.append(loss.item() / batch_size)
-            cp.train_acc.append(correct / batch_size)
+            train_loss[step] = loss.item() / batch_size
+            train_acc[step] = correct / batch_size
 
             if eval_data is not None:
                 e_loss, e_acc = self.evaluate(eval_data)
-                cp.eval_loss.append(e_loss)
-                cp.eval_acc.append(e_acc)
+                eval_loss[step] = e_loss
+                eval_acc[step] = e_acc
                 self.model.train()
 
                 # TODO: early stopping?
@@ -291,7 +292,9 @@ class Trainer:
             if self.verbose:
                 print(f"Training progress: [{(step+1)}/{n_steps}], {(time.monotonic()-start_time)/((step+1)):.2f}s per step (batch size: {batch_size})")
 
-        return cp.train_loss, cp.train_acc, cp.eval_loss, cp.eval_acc
+        if eval_data: 
+            return train_loss, train_acc, eval_loss, eval_acc
+        return train_loss, train_acc
 
     def evaluate(self, eval_data: Dataset = None):
         """
@@ -325,59 +328,6 @@ class Trainer:
         if self._scheduler_class is not None:
             self.scheduler = self._scheduler_class(self.optimizer, **scheduler_params)
 
-    @classmethod
-    def standard_init(cls, optimizer_class=torch.optim.Adam, optimizer_params={"lr": 0.001},
-                      scheduler_class=None, scheduler_params=None):
-        """
-        A standard initialization method for the Trainer class using the CIFAR-100 dataset 
-        and the LeNet5 model. Configures the optimizer, scheduler, and splits the dataset 
-        into training and validation subsets.
-
-        Args:
-            optimizer_class (Type[torch.optim.Optimizer], optional): 
-                The optimizer class to use (e.g., `torch.optim.Adam`). Default is `torch.optim.Adam`.
-            optimizer_params (dict, optional): 
-                A dictionary of parameters to initialize the optimizer. Default is `{"lr": 0.001}`.
-            scheduler_class (Type[torch.optim.lr_scheduler._LRScheduler], optional): 
-                The scheduler class to use for learning rate adjustments (e.g., `torch.optim.lr_scheduler.CosineAnnealingLR`). 
-                Default is None.
-            scheduler_params (dict, optional): 
-                A dictionary of parameters to initialize the scheduler. Default is None.
-
-        Returns:
-            Trainer: An instance of the `Trainer` class configured with the LeNet5 model, 
-            CIFAR-100 dataset, the specified optimizer, and optional learning rate scheduler.
-
-        Example:
-            trainer = Trainer.standard_init(
-                optimizer_class=torch.optim.SGD,
-                optimizer_params={"lr": 0.01, "momentum": 0.9},
-                scheduler_class=torch.optim.lr_scheduler.StepLR,
-                scheduler_params={"step_size": 10, "gamma": 0.1}
-            )
-        """
-
-        tran = transforms.Compose((transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))))
-        full_train_dataset = datasets.CIFAR100(root='./data', train=True, download=True, transform=tran)
-
-        train_size = int(0.8 * len(full_train_dataset))  # 80% for training
-        val_size = len(full_train_dataset) - train_size  # 20% for validation
-
-        train_dataset, val_dataset = random_split(full_train_dataset, (train_size, val_size))
-
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        model = LeNet5(num_classes=100).to(device)
-
-        return cls(
-            training_data=train_dataset,
-            validation_data=val_dataset,
-            model=model,
-            optimizer_class=optimizer_class,
-            optimizer_params=optimizer_params,
-            device=device,
-            scheduler_class=scheduler_class,
-            scheduler_params=scheduler_params
-        )
 
 
 if __name__ == "__main__":
@@ -387,3 +337,21 @@ if __name__ == "__main__":
 
     print("Input shape:", input_tensor.shape)
     print("Output shape:", output.shape)
+
+def load_data(data_dir=None, random_seed=69):
+    if data_dir is None:
+        data_dir = os.path.abspath("./data")
+
+    if random_seed is not None:
+        random_seed = torch.Generator().manual_seed(random_seed)
+
+    tran = transforms.Compose((transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))))
+    full_train_dataset = datasets.CIFAR100(root=data_dir, train=True, download=True, transform=tran)
+
+    train_size = int(0.8 * len(full_train_dataset))  # 80% for training
+    val_size = len(full_train_dataset) - train_size  # 20% for validation
+
+    train_dataset, val_dataset = random_split(full_train_dataset, (train_size, val_size), random_seed)
+
+    return train_dataset, val_dataset
+

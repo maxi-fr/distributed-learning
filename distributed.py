@@ -1,12 +1,14 @@
 
+import time
 from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler
 from typing import Iterator, Type
 import torch
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader, random_split, Dataset, DistributedSampler
 from torchvision import datasets, transforms
+from model import load_data
 from model import LeNet5, Trainer, average_model_params, evaluate_model, set_model_params
-from optimizers import SlowMo, average_optimizers
+from optimizers import DoNothing, SlowMo, average_optimizers
 
 
 
@@ -14,7 +16,7 @@ from optimizers import SlowMo, average_optimizers
 def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, n_local_steps: int, local_batch_size: int, 
                          global_optimizer_class: Type[Optimizer], global_optimizer_params: dict,
                          local_optimizer_class: Type[Optimizer], local_optimizer_params: dict,
-                         scheduler_class: Type[LRScheduler]=None, scheduler_params: dict=None, device=None):
+                         scheduler_class: Type[LRScheduler]=None, scheduler_params: dict=None, device=None, verbose=False):
     
     if device is None:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -28,32 +30,37 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
                                               local_lr=local_optimizer_params["lr"], **global_optimizer_params)
 
     local_models = [tr.model for tr in trainers]
-    local_optimizers = [tr.optimizers for tr in trainers]
+    local_optimizers = [tr.optimizer for tr in trainers]
 
     
     assert len(train_dataset) > (n_workers * n_local_steps * local_batch_size), "Combination of n_workers, n_local_steps and local_batch_size is bigger than the dataset!"
     
-    # number of iterations until every worker has seen the whole dataset
-    len_worker_epoch = len(train_dataset) // (n_local_steps * local_batch_size) 
+    # number of iterations until the workers together have seen the whole dataset
+    steps_per_epoch = len(train_dataset) // (n_workers * n_local_steps * local_batch_size) 
 
-    n_global_steps = n_epochs * len(train_dataset) // (n_workers * n_local_steps * local_batch_size) 
+    if verbose:
+        print("Starting training...")
+        start_time = time.monotonic()
 
-    for step in range(n_global_steps):
-        if step % len_worker_epoch == 0:
-            split_data = shuffle_and_split(train_dataset, n_workers, local_batch_size)
+    for epoch in range(n_epochs):
+        split_data = shuffle_and_split(train_dataset, n_workers, local_batch_size)
 
-        set_model_params(local_models, global_model)
-        average_optimizers(local_optimizers)
+        for _ in range(steps_per_epoch):
 
-        for i, trainer in enumerate(trainers):
-            data_loader = split_data[i]
-            losss = trainer.train_model(data_loader, n_local_steps)
+            set_model_params(local_models, global_model)
+            average_optimizers(local_optimizers)
 
-        average_model_params(global_model, local_models)
+            for i, trainer in enumerate(trainers):
+                data_loader = split_data[i]
+                losss = trainer.train_model(data_loader, n_local_steps)
 
-        global_optimizer.step()
+            average_model_params(global_model, local_models)
 
-        
+            global_optimizer.step()
+
+        if verbose:
+            print(f"Training progress: [{(epoch+1)}/{n_epochs}], {(time.monotonic()-start_time)/((epoch+1)):.2f}s per epoch")
+
     return global_model
 
 
@@ -79,24 +86,14 @@ def shuffle_and_split(train_data, N, batch_size, random_seed=None) -> list[Itera
 
     lengths = [len(train_data) // N] * N
     # TODO: training data can't be evenly split into subsets
-
     return [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, pin_memory=True, drop_last=True)) for subset in random_split(train_data, lengths, random_seed)]
 
 
 if __name__ == "__main__":
-    
-    # search_space = {}
-    
-    # tune.Tuner(tune_distributed_learning, )
+    train_dataset, val_dataset = load_data()
 
-    tran = transforms.Compose((transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))))
-    full_train_dataset = datasets.CIFAR100(root='./data', train=True, download=True, transform=tran)
-
-    train_size = int(0.8 * len(full_train_dataset))  # 80% for training
-    val_size = len(full_train_dataset) - train_size  # 20% for validation
-
-    train_dataset, val_dataset = random_split(full_train_dataset, (train_size, val_size))
-
-    model = distributed_learning(train_dataset, n_epochs=2, n_workers=2, n_local_steps=4, local_batch_size=2000, 
-                                 global_optimizer_class=SlowMo, global_optimizer_params={},
-                                 local_optimizer_class=torch.optim.Adam, local_optimizer_params={"lr": 0.01})
+    model = distributed_learning(train_dataset, n_epochs=150, n_workers=8, n_local_steps=1, local_batch_size=64, 
+                                 global_optimizer_class=DoNothing, global_optimizer_params={},
+                                 local_optimizer_class=torch.optim.AdamW, local_optimizer_params={"lr": 0.01},
+                                 scheduler_class=CosineAnnealingLR, scheduler_params={"T_max": 150, "eta_min": 1e-5},
+                                 verbose=True)
