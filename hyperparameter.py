@@ -8,26 +8,9 @@ from ray import tune
 from ray.tune import CLIReporter
 
 from distributed import distributed_learning
-from model import evaluate_model
+from model import evaluate_model, load_data
 import experiments_config
 
-
-def load_data(data_dir=None, random_seed=69):
-    if data_dir is None:
-        data_dir = os.path.abspath("./data")
-
-    if random_seed is not None:
-        random_seed = torch.Generator().manual_seed(random_seed)
-
-    tran = transforms.Compose((transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))))
-    full_train_dataset = datasets.CIFAR100(root=data_dir, train=True, download=True, transform=tran)
-
-    train_size = int(0.8 * len(full_train_dataset))  # 80% for training
-    val_size = len(full_train_dataset) - train_size  # 20% for validation
-
-    train_dataset, val_dataset = random_split(full_train_dataset, (train_size, val_size), random_seed)
-
-    return train_dataset, val_dataset
 
 
 def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref):
@@ -87,7 +70,7 @@ def custom_trial_name(trial):
 
 
 if __name__ == "__main__":
-    search_space = experiments_config.local_sgdw
+    search_space = experiments_config.play_araound
 
     train_dataset, val_dataset = load_data()
 
@@ -99,12 +82,14 @@ if __name__ == "__main__":
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref),
         config=search_space,
-        num_samples=2,
+        num_samples=7,
         progress_reporter=reporter,
         storage_path=os.path.abspath("ray_results"),
         max_concurrent_trials=1,
-        trial_dirname_creator=custom_trial_name
+        trial_dirname_creator=custom_trial_name,
+        metric="val_acc",
+        mode="max"
     )
     
-    print("Best hyperparameters found: ", analysis.get_best_config("val_acc", mode="max"))
-    print("Best validation accuracy: ", analysis.best_result["val_acc"])
+    print("Best hyperparameters found: ", analysis.best_config)
+    print("Best validation accuracy: ", analysis.best_result)

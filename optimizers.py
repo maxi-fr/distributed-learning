@@ -240,5 +240,38 @@ class DoNothing(Optimizer):
 
 
 def average_optimizers(opts: list[Optimizer]) -> None:
-    #TODO
-    pass
+    """
+    Averages all state values across the given optimizers, inplace.
+
+    Args:
+        opts (list[Optimizer]): A list of PyTorch optimizers. All optimizers must have the same state structure.
+    """
+    if not opts:
+        raise ValueError("The list of optimizers is empty.")
+    
+    states = [flatten_dict(opt.state) for opt in opts]
+
+
+    for x in zip(*states):
+        mean = torch.mean(torch.stack(x), dim=0)
+        
+        for state in x:
+            state.copy_(mean)
+
+def flatten_dict(d: dict) -> list:
+    """
+    Flattens an arbitrarily nested dictionary into a list of values.
+
+    Args:
+        d (Dict[Any, Any]): The dictionary to flatten.
+
+    Returns:
+        List[Any]: A list containing all the values in the dictionary, flattened.
+    """
+    values = []
+    for v in d.values():
+        if isinstance(v, dict):
+            values.extend(flatten_dict(v))
+        else:
+            values.append(v)
+    return values
