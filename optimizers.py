@@ -2,19 +2,17 @@
 import torch
 from torch.optim.optimizer import Optimizer
 
-
 class LARS(Optimizer):
     """Layer-wise Adaptive Rate Scaling with Momentum
 
     Args:
-        params (iterable): Iterable of parameters to optimize or dicts defining
-            parameter groups.
-        lr (float): Global learning rate.
+        params (iterable): Iterable of parameters to optimize
+        lr (float): Global learning rate
         momentum (float): Momentum factor (default: 0).
-        eta (float, optional): LARS coefficient as used in the paper (default: 1e-3).
-        weight_decay (float, optional): Weight decay (L2 penalty) (default: 0).
+        eta (float, optional): LARS coefficient (default: 1e-3).
+        weight_decay (float, optional): Weight decay (L2) (default: 0).
         dampening (float, optional): Dampening for momentum (default: 0).
-        epsilon (float, optional): Small value to prevent division by zero (default: 0).
+        epsilon (float, optional): Small float to prevent division by zero (default: 0).
 
     Example:
         >>> optimizer = LARS(model.parameters(), lr=0.1, momentum=0.9)
@@ -26,11 +24,11 @@ class LARS(Optimizer):
     def __init__(self, params, lr=required, momentum=0, eta=1e-3, dampening=0,
                  weight_decay=0, epsilon=0):
         if lr is not required and lr < 0.0:
-            raise ValueError(f"Invalid learning rate: {lr}")
+            raise ValueError(f"Invalid lr: {lr}")
         if momentum < 0.0:
-            raise ValueError(f"Invalid momentum value: {momentum}")
+            raise ValueError(f"Invalid momentum: {momentum}")
         if weight_decay < 0.0:
-            raise ValueError(f"Invalid weight_decay value: {weight_decay}")
+            raise ValueError(f"Invalid weight_decay: {weight_decay}")
 
         defaults = dict(lr=lr, momentum=momentum, eta=eta, dampening=dampening,
                         weight_decay=weight_decay, epsilon=epsilon)
@@ -40,7 +38,7 @@ class LARS(Optimizer):
         super(LARS, self).__setstate__(state)
 
     def step(self, closure=None):
-        """Performs a single optimization step.
+        """Performs optimization step.
 
         Arguments:
             closure (callable, optional): A closure that reevaluates the model
@@ -61,11 +59,11 @@ class LARS(Optimizer):
                 if p.grad is None:
                     continue
 
-                # Compute weight norm and gradient norm
+                # Compute weight- and gradient norm
                 w_norm = torch.norm(p.data)
                 g_norm = torch.norm(p.grad.data)
 
-                # Calculate local learning rate for layer
+                # Calculate local lr
                 if w_norm * g_norm > 0:
                     local_lr = eta * w_norm / (g_norm + weight_decay * w_norm + epsilon)
                 else:
@@ -84,89 +82,105 @@ class LARS(Optimizer):
                     buf = param_state['momentum_buffer']
                 buf.mul_(momentum).add_(1 - dampening, d_p)
 
-                # Use advanced momentum to adjust gradient further
+                # Adjust gradient further with momentum
                 d_p = d_p.add(momentum, buf)
 
-                # Update the parameter with the computed step
+                # Update parameter
                 p.data.add_(-local_lr * group['lr'], d_p)
 
         return loss
 
 
 
-class LAMB(Optimizer):
-    def __init__(self, params, lr=1e-3, weight_decay=0.0, beta1=0.9, beta2=0.999, eps=1e-6):
-        """
-        LAMB optimizer implementation.
-        Args:
-            params (iterable): Parameters to optimize.
-            lr (float): Learning rate.
-            weight_decay (float): Weight decay (L2 penalty).
-            beta1 (float): Exponential decay rate for first moment estimates.
-            beta2 (float): Exponential decay rate for second moment estimates.
-            eps (float): Term added to the denominator to improve numerical stability.
-        """
-        defaults = dict(lr=lr, weight_decay=weight_decay, beta1=beta1, beta2=beta2, eps=eps)
-        super().__init__(params, defaults)
+class Lamb(Optimizer):
+    """
+    Arguments:
+        params (iterable): iterable of parameters to optimize or dicts defining
+            parameter groups
+        lr (float, optional): learning rate (default: 1e-3)
+        betas (Tuple[float, float], optional): coefficients used for computing
+            running averages of gradient and its square (default: (0.9, 0.999))
+        eps (float, optional): term added to the denominator to improve
+            numerical stability (default: 1e-8)
+        weight_decay (float, optional): weight decay (L2 penalty) (default: 0)
+        adam (bool, optional): sets trust ratio to 1, turning it into Adam
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-6,
+                 weight_decay=0, adam=False):
+        if not 0.0 <= lr:
+            raise ValueError("Invalid learning rate: {}".format(lr))
+        if not 0.0 <= eps:
+            raise ValueError("Invalid epsilon value: {}".format(eps))
+        if not 0.0 <= betas[0] < 1.0:
+            raise ValueError("Invalid beta parameter at index 0: {}".format(betas[0]))
+        if not 0.0 <= betas[1] < 1.0:
+            raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
+        defaults = dict(lr=lr, betas=betas, eps=eps,
+                        weight_decay=weight_decay)
+        self.adam = adam
+        super(Lamb, self).__init__(params, defaults)
 
     def step(self, closure=None):
+        """Performs a single optimization step.
+
+        Arguments:
+            closure (callable, optional): A closure that reevaluates the model
+                and returns the loss.
         """
-        Performs a single optimization step.
-        Args:
-            closure (callable, optional): A closure that reevaluates the model and returns the loss.
-        Returns:
-            Loss value if closure is provided, otherwise None.
-        """
-        loss = closure() if closure is not None else None
+        loss = None
+        if closure is not None:
+            loss = closure()
 
         for group in self.param_groups:
-            lr = group['lr']
-            weight_decay = group['weight_decay']
-            beta1 = group['beta1']
-            beta2 = group['beta2']
-            eps = group['eps']
-
-            for param in group['params']:
-                if param.grad is None:
+            for p in group['params']:
+                if p.grad is None:
                     continue
+                grad = p.grad.data
+                if grad.is_sparse:
+                    raise RuntimeError('Lamb does not support sparse gradients, consider SparseAdam instad.')
 
-                grad = param.grad.data
-                state = self.state[param]
+                state = self.state[p]
 
                 # State initialization
                 if len(state) == 0:
                     state['step'] = 0
-                    state['exp_avg'] = torch.zeros_like(param.data)  # First moment
-                    state['exp_avg_sq'] = torch.zeros_like(param.data)  # Second moment
+                    # Exponential moving average of gradient values
+                    state['exp_avg'] = torch.zeros_like(p.data)
+                    # Exponential moving average of squared gradient values
+                    state['exp_avg_sq'] = torch.zeros_like(p.data)
 
-                exp_avg = state['exp_avg']
-                exp_avg_sq = state['exp_avg_sq']
+                exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
+                beta1, beta2 = group['betas']
+
                 state['step'] += 1
-                step = state['step']
 
-                # Apply weight decay (if specified)
-                if weight_decay != 0:
-                    grad = grad.add(param.data, alpha=weight_decay)
-
-                # Update biased first and second moment estimates
+                # Decay the first and second moment running average coefficient
+                # m_t
                 exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+                # v_t
                 exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
 
-                # Compute bias-corrected moments
-                bias_correction1 = 1 - beta1 ** step
-                bias_correction2 = 1 - beta2 ** step
-                corrected_exp_avg = exp_avg / bias_correction1
-                corrected_exp_avg_sq = exp_avg_sq / bias_correction2
+                step_size = group['lr']
 
-                # Compute LAMB step
-                r1 = param.data.norm()
-                r2 = corrected_exp_avg.norm() / (corrected_exp_avg_sq.sqrt() + eps)
-                trust_ratio = r1 / r2 if r1 > 0 and r2 > 0 else 1.0
+                weight_norm = p.data.pow(2).sum().sqrt().clamp(0, 10)
 
-                # Update parameters
-                step_size = lr * (trust_ratio.item() if isinstance(trust_ratio, torch.Tensor) else trust_ratio)
-                param.data.add_(corrected_exp_avg, alpha=-step_size)
+                adam_step = exp_avg / exp_avg_sq.sqrt().add(group['eps'])
+                if group['weight_decay'] != 0:
+                    adam_step.add_(p.data, alpha=group['weight_decay'])
 
+                adam_norm = adam_step.pow(2).sum().sqrt()
+                if weight_norm == 0 or adam_norm == 0:
+                    trust_ratio = 1
+                else:
+                    trust_ratio = weight_norm / adam_norm
+                state['weight_norm'] = weight_norm
+                state['adam_norm'] = adam_norm
+                state['trust_ratio'] = trust_ratio
+                if self.adam:
+                    trust_ratio = 1
+
+                p.data.add_(adam_step, alpha=-step_size * trust_ratio)
 
         return loss
 
