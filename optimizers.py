@@ -21,9 +21,9 @@ class LARS(Optimizer):
         >>> optimizer.step()
     """
 
-    def __init__(self, params, lr=required, momentum=0, eta=1e-3, dampening=0,
+    def __init__(self, params, lr=0.01, momentum=0, eta=1e-3, dampening=0,
                  weight_decay=0, epsilon=0):
-        if lr is not required and lr < 0.0:
+        if lr < 0.0:
             raise ValueError(f"Invalid lr: {lr}")
         if momentum < 0.0:
             raise ValueError(f"Invalid momentum: {momentum}")
