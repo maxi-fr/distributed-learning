@@ -257,12 +257,23 @@ class Trainer:
             # Backward pass and optimization
             self.optimizer.zero_grad()
             loss.backward()
+
+            if torch.isnan(loss):
+                total_norm = 0
+                for p in model.parameters():
+                    if p.grad is not None:
+                        total_norm += p.grad.data.norm(2).item()
+                print(f"Gradient norm: {total_norm}")
+
+                raise ValueError("Loss is NaN. Stopping...")
+
+
             self.optimizer.step()
 
             _, predicted = torch.max(outputs.data, 1)
             correct = (predicted == labels).sum().item()
 
-            train_loss[step] = loss.item() / batch_size
+            train_loss[step] = loss.item()
             train_acc[step] = correct / batch_size
 
             if eval_data is not None:
@@ -280,6 +291,7 @@ class Trainer:
 
             if self._scheduler_class is not None:
                 self.scheduler.step()
+                
                 if self.verbose:
                     current_lr = self.optimizer.param_groups[0]['lr']
                     print(f"Training step {step + 1}: Learning rate {current_lr:.6f}")

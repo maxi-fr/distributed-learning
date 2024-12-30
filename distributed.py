@@ -42,25 +42,28 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
         print("Starting training...")
         start_time = time.monotonic()
 
-    for epoch in range(n_epochs):
-        split_data = shuffle_and_split(train_dataset, n_workers, local_batch_size)
+    try:
+        for epoch in range(n_epochs):
+            split_data = shuffle_and_split(train_dataset, n_workers, local_batch_size)
 
-        for _ in range(steps_per_epoch):
+            for _ in range(steps_per_epoch):
 
-            set_model_params(local_models, global_model)
-            average_optimizers(local_optimizers)
+                set_model_params(local_models, global_model)
+                average_optimizers(local_optimizers)
 
-            for i, trainer in enumerate(trainers):
-                data_loader = split_data[i]
-                train_loss, train_acc = trainer.train_model(data_loader, n_local_steps)
+                for i, trainer in enumerate(trainers):
+                    data_loader = split_data[i]
+                    train_loss, train_acc = trainer.train_model(data_loader, n_local_steps)
 
-            average_model_params(global_model, local_models)
+                average_model_params(global_model, local_models)
 
-            global_optimizer.step()
+                global_optimizer.step()
 
-        if verbose:
-            print(f"Training progress: [{(epoch+1)}/{n_epochs}], {(time.monotonic()-start_time)/((epoch+1)):.2f}s per epoch")
-            print(f"Current training loss/acc: {train_loss.max().item():.3f}/{train_acc.max().item()*100:.2f}%")
+            if verbose:
+                print(f"Training progress: [{(epoch+1)}/{n_epochs}], {(time.monotonic()-start_time)/((epoch+1)):.2f}s per epoch")
+                print(f"Current training loss/acc: {train_loss.max().item():.3f}/{train_acc.max().item()*100:.2f}%")
+    except ValueError as e:
+        print(e)
 
     return global_model
 
