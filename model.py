@@ -131,7 +131,7 @@ def evaluate_model(model, eval_data: Dataset, criterion, device, verbose=True):
             - av_loss (float): Average loss over the evaluation dataset.
             - accuracy (float): Accuracy over the evaluation dataset.
     """
-    eval_data_loader = DataLoader(eval_data, batch_size=16384, shuffle=False, pin_memory=True)
+    eval_data_loader = DataLoader(eval_data, batch_size=2048, shuffle=False, pin_memory=True)
 
     model.eval()
     correct = 0
