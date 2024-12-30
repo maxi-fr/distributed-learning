@@ -24,8 +24,10 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     trainers = get_workers(n_workers, local_optimizer_class, local_optimizer_params, 
                            scheduler_class, scheduler_params, device)
     
+    # stop_early = EarlyStopping()
 
     global_model = LeNet5()
+    global_model.to(device)
     global_optimizer = global_optimizer_class(global_model.parameters(), 
                                               local_lr=local_optimizer_params["lr"], **global_optimizer_params)
 
@@ -62,6 +64,9 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
             if verbose:
                 print(f"Training progress: [{(epoch+1)}/{n_epochs}], {(time.monotonic()-start_time)/((epoch+1)):.2f}s per epoch")
                 print(f"Current training loss/acc: {train_loss.max().item():.3f}/{train_acc.max().item()*100:.2f}%")
+
+            # if stop_early(train_loss):
+            #     break
     except ValueError as e:
         print(e)
 
@@ -93,6 +98,24 @@ def shuffle_and_split(train_data, N, batch_size, random_seed=None) -> list[Itera
     # TODO: training data can't be evenly split into subsets
     return [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, pin_memory=True, drop_last=True)) for subset in random_split(train_data, lengths, random_seed)]
 
+
+class EarlyStopping:
+
+    def __init__(self, min_improvement = 0.001, patience = 5):
+        self.min_improv = min_improvement
+        self.patience = patience
+        self.best = 0.0
+        self.steps_without_improvement = 0
+
+    def __call__(self, value: torch.Tensor):
+        value = value.mean().item()
+        if value > self.best + self.min_improv:
+            self.best = value
+            self.steps_without_improvement = 0
+        else:
+            self.steps_without_improvement += 1
+
+        return self.steps_without_improvement >= self.patience
 
 if __name__ == "__main__":
     train_dataset, val_dataset = load_data()
