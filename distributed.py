@@ -1,4 +1,5 @@
 
+import math
 import time
 from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler
 from typing import Iterator, Type
@@ -46,7 +47,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
 
     try:
         for epoch in range(n_epochs):
-            split_data = shuffle_and_split(train_dataset, n_workers, local_batch_size, device=device)
+            split_data = shuffle_and_split(train_dataset, n_workers, local_batch_size, device=device, pre_fetch=n_local_steps)
 
             for _ in range(steps_per_epoch):
 
@@ -90,13 +91,15 @@ def get_workers(n_workers: int, local_optimizer_class: Type[Optimizer], local_op
     return trainers
 
 
-def shuffle_and_split(train_data, N, batch_size, random_seed=None, device= "") -> list[Iterator[DataLoader]]:
+def shuffle_and_split(train_data, N, batch_size, random_seed=None, device= "", pre_fetch_factor=1) -> list[Iterator[DataLoader]]:
     if random_seed is not None:
         random_seed = torch.Generator().manual_seed(random_seed)
 
     lengths = [len(train_data) // N] * N
     # TODO: training data can't be evenly split into subsets
-    return [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, pin_memory=True, drop_last=True, pin_memory_device=str(device))) for subset in random_split(train_data, lengths, random_seed)]
+    return [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, 
+                            pin_memory=True, drop_last=True, pin_memory_device=str(device),
+                            prefetch_factor=math.ceil(pre_fetch_factor/2))) for subset in random_split(train_data, lengths, random_seed)]
 
 
 class EarlyStopping:
