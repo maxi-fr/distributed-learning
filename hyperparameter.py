@@ -74,7 +74,7 @@ if __name__ == "__main__":
 
     train_dataset, val_dataset = load_data()
 
-    ray.init()
+    ray.init(n_gpus=torch.cuda.device_count())
     train_data_obj_ref = ray.put((train_dataset, val_dataset))
 
     reporter = CLIReporter(metric_columns=["val_loss", "val_acc"])
