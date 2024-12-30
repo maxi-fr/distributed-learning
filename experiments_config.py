@@ -1,7 +1,7 @@
 from ray import tune
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from optimizers import LAMB, LARS, DoNothing, SlowMo
+from optimizers import Lamb, LARS, DoNothing, SlowMo
 
 
 
@@ -47,7 +47,7 @@ local_sgdw = {
     "local_batch_size": 64, # tune.choice([32, 64, 128]), in paper [11] batch size was 64
 
     "local_optimizer_class": torch.optim.SGD,
-    "local_opt.lr": tune.loguniform(1e-5, 1e-1),
+    "local_opt.lr": tune.loguniform(1e-5, 1e-2),
     "local_opt.momentum": 0.9,
     "local_opt.weight_decay": tune.loguniform(1e-5, 1e-2),
 
@@ -65,7 +65,7 @@ local_adamw = {
     "local_batch_size": 64, # tune.choice([32, 64, 128]), in paper [11] batch size was 64
 
     "local_optimizer_class": torch.optim.AdamW,
-    "local_opt.lr": tune.loguniform(1e-5, 1e-1),
+    "local_opt.lr": tune.loguniform(1e-5, 1e-2),
     "local_opt.momentum": 0.9,
     "local_opt.weight_decay": tune.loguniform(1e-5, 1e-2),
 
@@ -83,7 +83,7 @@ large_batch_lars = {
     "local_batch_size": 64, # tune.choice([32, 64, 128]), in paper [11] batch size was 64
 
     "local_optimizer_class": LARS,
-    "local_opt.lr": tune.loguniform(1e-5, 1e-1),
+    "local_opt.lr": tune.loguniform(1e-5, 1e-2),
     "local_opt.momentum": 0.9,
     "local_opt.weight_decay": tune.loguniform(1e-5, 1e-2),
 
@@ -100,8 +100,8 @@ large_batch_lamb = {
     "n_local_steps": tune.choice(range(3, 10)),
     "local_batch_size": 64, # tune.choice([32, 64, 128]), in paper [11] batch size was 64
 
-    "local_optimizer_class": LAMB,
-    "local_opt.lr": tune.loguniform(1e-5, 1e-1),
+    "local_optimizer_class": Lamb,
+    "local_opt.lr": tune.loguniform(1e-5, 1e-2),
     "local_opt.momentum": 0.9,
     "local_opt.weight_decay": tune.loguniform(1e-5, 1e-2),
 
