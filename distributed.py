@@ -100,7 +100,7 @@ def shuffle_and_split(train_data, N, batch_size, random_seed=None, device= "", p
     try:
         ret =  [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, 
                                 pin_memory=True, drop_last=True, pin_memory_device=str(device),
-                                prefetch_factor=math.ceil(pre_fetch/2), num_workers=2)) for subset in random_split(train_data, lengths, random_seed)]
+                                prefetch_factor=math.ceil(pre_fetch), num_workers=1)) for subset in random_split(train_data, lengths, random_seed)]
     except:
         ret = [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, 
                                pin_memory=True, drop_last=True)) for subset in random_split(train_data, lengths, random_seed)]
