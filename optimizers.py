@@ -80,7 +80,7 @@ class LARS(Optimizer):
                     buf = param_state['momentum_buffer'] = torch.clone(d_p).detach()
                 else:
                     buf = param_state['momentum_buffer']
-                buf.mul_(momentum).add_(1 - dampening, d_p)
+                buf.mul_(momentum).add_(d_p,alpha=1 - dampening)
 
                 # Adjust gradient further with momentum
                 d_p = d_p.add(momentum, buf)
@@ -92,7 +92,7 @@ class LARS(Optimizer):
 
 
 
-class Lamb(Optimizer):
+class LAMB(Optimizer):
     """
     Arguments:
         params (iterable): iterable of parameters to optimize or dicts defining
@@ -119,7 +119,7 @@ class Lamb(Optimizer):
         defaults = dict(lr=lr, betas=betas, eps=eps,
                         weight_decay=weight_decay)
         self.adam = adam
-        super(Lamb, self).__init__(params, defaults)
+        super(LAMB, self).__init__(params, defaults)
 
     def step(self, closure=None):
         """Performs a single optimization step.
@@ -144,7 +144,6 @@ class Lamb(Optimizer):
 
                 # State initialization
                 if len(state) == 0:
-                    state['step'] = 0
                     # Exponential moving average of gradient values
                     state['exp_avg'] = torch.zeros_like(p.data)
                     # Exponential moving average of squared gradient values
@@ -152,8 +151,6 @@ class Lamb(Optimizer):
 
                 exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
                 beta1, beta2 = group['betas']
-
-                state['step'] += 1
 
                 # Decay the first and second moment running average coefficient
                 # m_t
