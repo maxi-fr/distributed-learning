@@ -3,13 +3,15 @@ import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from optimizers import Lamb, LARS, DoNothing, SlowMo
 
-
+N_WORKERS = 8
+N_LOCAL_STEPS = 8
+LOCAL_BATCH_SIZE = 64
 
 play_araound = {
-    "n_workers": tune.choice([2, 4, 8]),
+    "n_workers": N_WORKERS,
     "n_epochs": 1,
     "n_local_steps": tune.choice([1, 5, 10]),
-    "local_batch_size": tune.choice([32, 64, 128]),
+    "local_batch_size": LOCAL_BATCH_SIZE,
 
     "local_optimizer_class": torch.optim.SGD,
     "local_opt.lr": tune.loguniform(1e-4, 1e-1),
@@ -24,10 +26,10 @@ play_araound = {
     }
 
 mini_batch_sdg = {
-    "n_workers": 1,
+    "n_workers": N_WORKERS,
     "n_epochs": 150,
-    "n_local_steps": 1000,
-    "local_batch_size": 64, # tune.choice([32, 64, 128]), in paper [11] batch size was 64
+    "n_local_steps": 1,
+    "local_batch_size": LOCAL_BATCH_SIZE, # tune.choice([32, 64, 128]), in paper [11] batch size was 64
 
     "local_optimizer_class": torch.optim.SGD,
     "local_opt.lr": tune.loguniform(1e-5, 1e-1),
@@ -41,10 +43,10 @@ mini_batch_sdg = {
     }
 
 local_sgdw = {
-    "n_workers": tune.grid_search([2, 4, 8, 16]),
+    "n_workers": N_WORKERS,
     "n_epochs": 150,
-    "n_local_steps": tune.choice(range(3, 10)),
-    "local_batch_size": 64, # tune.choice([32, 64, 128]), in paper [11] batch size was 64
+    "n_local_steps": N_LOCAL_STEPS,
+    "local_batch_size": LOCAL_BATCH_SIZE, # tune.choice([32, 64, 128]), in paper [11] batch size was 64
 
     "local_optimizer_class": torch.optim.SGD,
     "local_opt.lr": tune.loguniform(1e-5, 1e-2),
@@ -59,10 +61,10 @@ local_sgdw = {
     }
 
 local_adamw = {
-    "n_workers": tune.grid_search([2, 4, 8, 16]),
+    "n_workers": N_WORKERS,
     "n_epochs": 150,
-    "n_local_steps": tune.choice(range(3, 10)),
-    "local_batch_size": 64, # tune.choice([32, 64, 128]), in paper [11] batch size was 64
+    "n_local_steps": N_LOCAL_STEPS,
+    "local_batch_size": LOCAL_BATCH_SIZE, # tune.choice([32, 64, 128]), in paper [11] batch size was 64
 
     "local_optimizer_class": torch.optim.AdamW,
     "local_opt.lr": tune.loguniform(1e-5, 1e-2),
@@ -77,10 +79,10 @@ local_adamw = {
     }
 
 large_batch_lars = {
-    "n_workers": tune.grid_search([2, 4, 8, 16]),
+    "n_workers": N_WORKERS,
     "n_epochs": 150,
-    "n_local_steps": tune.choice(range(3, 10)),
-    "local_batch_size": 64, # tune.choice([32, 64, 128]), in paper [11] batch size was 64
+    "n_local_steps": 1,
+    "local_batch_size": N_LOCAL_STEPS * LOCAL_BATCH_SIZE, 
 
     "local_optimizer_class": LARS,
     "local_opt.lr": tune.loguniform(1e-5, 1e-2),
@@ -95,10 +97,10 @@ large_batch_lars = {
     }
 
 large_batch_lamb = {
-    "n_workers": tune.grid_search([2, 4, 8, 16]),
+    "n_workers": N_WORKERS,
     "n_epochs": 150,
-    "n_local_steps": tune.choice(range(3, 10)),
-    "local_batch_size": 64, # tune.choice([32, 64, 128]), in paper [11] batch size was 64
+    "n_local_steps": 1,
+    "local_batch_size": N_LOCAL_STEPS * LOCAL_BATCH_SIZE, 
 
     "local_optimizer_class": Lamb,
     "local_opt.lr": tune.loguniform(1e-5, 1e-2),

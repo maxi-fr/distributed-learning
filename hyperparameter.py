@@ -6,6 +6,7 @@ from torchvision import datasets, transforms
 from torch.utils.data import random_split
 from ray import tune
 from ray.tune import CLIReporter
+# from ray.tune.search.variant_generator import BasicVariantGenerator
 
 from distributed import distributed_learning
 from model import evaluate_model, load_data
@@ -51,7 +52,7 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
             raise KeyError("Wrong parameter in 'config' dict: ", scope, param)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+    print(device)
     train_dataset, val_dataset = ray.get(train_data_obj_ref)
 
     global_model = distributed_learning(train_dataset, n_epochs, n_workers, n_local_steps, local_batch_size,
