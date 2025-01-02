@@ -1,3 +1,4 @@
+TODO centralized baseline
 TODO SGDM mit verschiedenen Hyperparametern rechnen lassen und Ergebnisse sichern (plots, bzw Daten)
 TODO AdamW mit verschiedenen Hyperparametern rechnen lassen und Ergebnisse sichern (plots, bzw Daten)
 TODO LARS mit verschiedenen Hyperparametern rechnen lassen und Ergebnisse sichern (plots, bzw Daten)
