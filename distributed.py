@@ -96,11 +96,16 @@ def shuffle_and_split(train_data, N, batch_size, random_seed=None, device= "", p
         random_seed = torch.Generator().manual_seed(random_seed)
 
     lengths = [len(train_data) // N] * N
+
+    #if pre_fetch < 1:
+    #pre_fetch = 1
+    #### Prefetching is not working at all! #####
+
     # TODO: training data can't be evenly split into subsets
     # try:
     #     ret =  [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, 
     #                             pin_memory=True, drop_last=True, pin_memory_device=str(device),
-    #                             prefetch_factor=math.ceil(pre_fetch/2), num_workers=2)) for subset in random_split(train_data, lengths, random_seed)]
+    #                             prefetch_factor=math.ceil(pre_fetch), num_workers=0)) for subset in random_split(train_data, lengths, random_seed)]
     # except:
     ret = [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, 
                                pin_memory=True, drop_last=True)) for subset in random_split(train_data, lengths, random_seed)]

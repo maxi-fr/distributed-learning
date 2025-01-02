@@ -6,6 +6,7 @@ from torchvision import datasets, transforms
 from torch.utils.data import random_split
 from ray import tune
 from ray.tune import CLIReporter
+# from ray.tune.search.variant_generator import BasicVariantGenerator
 
 from distributed import distributed_learning
 from model import evaluate_model, load_data
