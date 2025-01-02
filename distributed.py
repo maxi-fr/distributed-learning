@@ -42,7 +42,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     steps_per_epoch = len(train_dataset) // (n_workers * n_local_steps * local_batch_size) 
 
     if verbose:
-        print("Starting training...")
+        print("Starting training on device:", device)
         start_time = time.monotonic()
 
     try:
@@ -97,12 +97,12 @@ def shuffle_and_split(train_data, N, batch_size, random_seed=None, device= "", p
 
     lengths = [len(train_data) // N] * N
     # TODO: training data can't be evenly split into subsets
-    try:
-        ret =  [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, 
-                                pin_memory=True, drop_last=True, pin_memory_device=str(device),
-                                prefetch_factor=math.ceil(pre_fetch/2), num_workers=2)) for subset in random_split(train_data, lengths, random_seed)]
-    except:
-        ret = [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, 
+    # try:
+    #     ret =  [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, 
+    #                             pin_memory=True, drop_last=True, pin_memory_device=str(device),
+    #                             prefetch_factor=math.ceil(pre_fetch/2), num_workers=2)) for subset in random_split(train_data, lengths, random_seed)]
+    # except:
+    ret = [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, 
                                pin_memory=True, drop_last=True)) for subset in random_split(train_data, lengths, random_seed)]
     
     return ret
@@ -131,4 +131,4 @@ if __name__ == "__main__":
                                  global_optimizer_class=DoNothing, global_optimizer_params={},
                                  local_optimizer_class=torch.optim.AdamW, local_optimizer_params={"lr": 0.01},
                                  scheduler_class=CosineAnnealingLR, scheduler_params={"T_max": 150, "eta_min": 1e-5},
-                                 verbose=True)
+                                 verbose=True, device="cuda")
