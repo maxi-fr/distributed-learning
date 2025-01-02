@@ -1,0 +1,14 @@
+{
+  "global_opt.lr": 0.002207341099856608,
+  "global_opt.momentum": 0.8153254802382097,
+  "global_optimizer_class": "<class 'optimizers.SlowMo'>",
+  "local_batch_size": 64,
+  "local_opt.lr": 0.028166629069661584,
+  "local_opt.momentum": 0.8681970362999964,
+  "local_optimizer_class": "<class 'torch.optim.sgd.SGD'>",
+  "n_epochs": 1,
+  "n_local_steps": 5,
+  "n_workers": 2,
+  "scheduler.T_max": 150,
+  "scheduler_class": "<class 'torch.optim.lr_scheduler.CosineAnnealingLR'>"
+}
