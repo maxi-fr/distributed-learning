@@ -1,7 +1,7 @@
 from ray import tune
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from optimizers import Lamb, LARS, DoNothing, SlowMo
+from optimizers import LAMB, LARS, DoNothing, SlowMo
 
 N_WORKERS = 8
 N_LOCAL_STEPS = 8
@@ -101,7 +101,7 @@ large_batch_lamb = {
     "n_local_steps": 1,
     "local_batch_size": N_LOCAL_STEPS * LOCAL_BATCH_SIZE, 
 
-    "local_optimizer_class": Lamb,
+    "local_optimizer_class": LAMB,
     "local_opt.lr": tune.loguniform(1e-5, 1e-2),
     "local_opt.momentum": 0.9,
     "local_opt.weight_decay": tune.loguniform(1e-5, 1e-2),
