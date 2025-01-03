@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader, random_split, Dataset, DistributedSampl
 from torchvision import datasets, transforms
 from model import load_data
 from model import LeNet5, Trainer, average_model_params, evaluate_model, set_model_params
-from optimizers import DoNothing, SlowMo, average_optimizers
+from optimizers import DoNothing, SlowMo, average_optimizers, LARS, LAMB
 
 
 
@@ -42,7 +42,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     steps_per_epoch = len(train_dataset) // (n_workers * n_local_steps * local_batch_size) 
 
     if verbose:
-        print("Starting training...")
+        print("Starting training on device:", device)
         start_time = time.monotonic()
 
     try:
@@ -96,13 +96,18 @@ def shuffle_and_split(train_data, N, batch_size, random_seed=None, device= "", p
         random_seed = torch.Generator().manual_seed(random_seed)
 
     lengths = [len(train_data) // N] * N
+
+    #if pre_fetch < 1:
+    #pre_fetch = 1
+    #### Prefetching is not working at all! #####
+
     # TODO: training data can't be evenly split into subsets
-    try:
-        ret =  [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, 
-                                pin_memory=True, drop_last=True, pin_memory_device=str(device),
-                                prefetch_factor=math.ceil(pre_fetch), num_workers=1)) for subset in random_split(train_data, lengths, random_seed)]
-    except:
-        ret = [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, 
+    # try:
+    #     ret =  [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, 
+    #                             pin_memory=True, drop_last=True, pin_memory_device=str(device),
+    #                             prefetch_factor=math.ceil(pre_fetch), num_workers=0)) for subset in random_split(train_data, lengths, random_seed)]
+    # except:
+    ret = [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, 
                                pin_memory=True, drop_last=True)) for subset in random_split(train_data, lengths, random_seed)]
     
     return ret
@@ -129,6 +134,6 @@ if __name__ == "__main__":
 
     model = distributed_learning(train_dataset, n_epochs=150, n_workers=8, n_local_steps=1, local_batch_size=64, 
                                  global_optimizer_class=DoNothing, global_optimizer_params={},
-                                 local_optimizer_class=torch.optim.AdamW, local_optimizer_params={"lr": 0.01},
+                                 local_optimizer_class=LAMB, local_optimizer_params={"lr": 0.01},
                                  scheduler_class=CosineAnnealingLR, scheduler_params={"T_max": 150, "eta_min": 1e-5},
                                  verbose=True)

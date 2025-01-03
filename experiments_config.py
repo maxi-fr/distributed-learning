@@ -1,7 +1,7 @@
 from ray import tune
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from optimizers import Lamb, LARS, DoNothing, SlowMo
+from optimizers import LAMB, LARS, DoNothing, SlowMo
 
 N_WORKERS = 8
 N_LOCAL_STEPS = 8
@@ -26,20 +26,21 @@ play_araound = {
     }
 
 mini_batch_sdg = {
-    "n_workers": N_WORKERS,
+    "n_workers": 1,
     "n_epochs": 150,
-    "n_local_steps": 1,
+    "n_local_steps": N_WORKERS * N_LOCAL_STEPS, # for n_workers = 1 doesn't change anything apart from less calls to averaging functions
     "local_batch_size": LOCAL_BATCH_SIZE, # tune.choice([32, 64, 128]), in paper [11] batch size was 64
 
     "local_optimizer_class": torch.optim.SGD,
-    "local_opt.lr": tune.loguniform(1e-5, 1e-1),
-    "local_opt.momentum": 0,
+    "local_opt.lr": tune.loguniform(1e-6, 1e-1),
+    "local_opt.momentum": 0.9,
+    "local_opt.weight_decay": tune.loguniform(1e-6, 1e-1),
 
     "global_optimizer_class": DoNothing,
 
     "scheduler_class": CosineAnnealingLR,
     "scheduler.T_max": 150,
-    "scheduler.eta_min": 1e-6
+    "scheduler.eta_min": 1e-7
     }
 
 local_sgdw = {
@@ -57,7 +58,6 @@ local_sgdw = {
 
     "scheduler_class": CosineAnnealingLR,
     "scheduler.T_max": 150,
-    "scheduler.eta_min": 1e-6
     }
 
 local_adamw = {
@@ -68,7 +68,6 @@ local_adamw = {
 
     "local_optimizer_class": torch.optim.AdamW,
     "local_opt.lr": tune.loguniform(1e-5, 1e-2),
-    "local_opt.momentum": 0.9,
     "local_opt.weight_decay": tune.loguniform(1e-5, 1e-2),
 
     "global_optimizer_class": DoNothing,
@@ -102,7 +101,7 @@ large_batch_lamb = {
     "n_local_steps": 1,
     "local_batch_size": N_LOCAL_STEPS * LOCAL_BATCH_SIZE, 
 
-    "local_optimizer_class": Lamb,
+    "local_optimizer_class": LAMB,
     "local_opt.lr": tune.loguniform(1e-5, 1e-2),
     "local_opt.momentum": 0.9,
     "local_opt.weight_decay": tune.loguniform(1e-5, 1e-2),
