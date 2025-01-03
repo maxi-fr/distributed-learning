@@ -8,10 +8,10 @@ N_LOCAL_STEPS = 8
 LOCAL_BATCH_SIZE = 64
 
 play_araound = {
-    "n_workers": N_WORKERS,
+    "n_workers": 1,
     "n_epochs": 1,
-    "n_local_steps": tune.choice([1, 5, 10]),
-    "local_batch_size": LOCAL_BATCH_SIZE,
+    "n_local_steps": 1,
+    "local_batch_size": 50,
 
     "local_optimizer_class": torch.optim.SGD,
     "local_opt.lr": tune.loguniform(1e-4, 1e-1),
