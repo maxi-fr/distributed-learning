@@ -1,0 +1,13 @@
+{
+  "global_optimizer_class": "<class 'optimizers.DoNothing'>",
+  "local_batch_size": 64,
+  "local_opt.lr": 0.0004873614436354047,
+  "local_opt.weight_decay": 0.00039382821856491376,
+  "local_optimizer_class": "<class 'torch.optim.adamw.AdamW'>",
+  "n_epochs": 150,
+  "n_local_steps": 8,
+  "n_workers": 8,
+  "scheduler.T_max": 150,
+  "scheduler.eta_min": 1e-06,
+  "scheduler_class": "<class 'torch.optim.lr_scheduler.CosineAnnealingLR'>"
+}

@@ -74,7 +74,7 @@ def custom_dir_trial_name(trial):
     return f"trial_dir_{trial.trial_id}"
 
 if __name__ == "__main__":
-    search_space = experiments_config.play_araound
+    search_space = experiments_config.mini_batch_sdg
 
     train_dataset, val_dataset = load_data()
 
@@ -88,12 +88,12 @@ if __name__ == "__main__":
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref),
         config=search_space,
-        num_samples=7,
+        num_samples=20,
         progress_reporter=reporter,
         storage_path=os.path.abspath("ray_results"),
         max_concurrent_trials=1,
         trial_name_creator=custom_trial_name,
-        trial_dirname_creator=custom_dir_trial_name,
+        trial_dirname_creator=lambda t: f"mini_batch_sgd_{t.trial_id}",
         metric="val_acc",
         mode="max"
     )
