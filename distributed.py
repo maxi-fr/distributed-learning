@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader, random_split, Dataset, DistributedSampl
 from torchvision import datasets, transforms
 from model import load_data
 from model import LeNet5, Trainer, average_model_params, evaluate_model, set_model_params
-from optimizers import DoNothing, SlowMo, average_optimizers
+from optimizers import DoNothing, SlowMo, average_optimizers, LARS, LAMB
 
 
 
@@ -134,6 +134,6 @@ if __name__ == "__main__":
 
     model = distributed_learning(train_dataset, n_epochs=150, n_workers=8, n_local_steps=1, local_batch_size=64, 
                                  global_optimizer_class=DoNothing, global_optimizer_params={},
-                                 local_optimizer_class=torch.optim.AdamW, local_optimizer_params={"lr": 0.01},
+                                 local_optimizer_class=LAMB, local_optimizer_params={"lr": 0.01},
                                  scheduler_class=CosineAnnealingLR, scheduler_params={"T_max": 150, "eta_min": 1e-5},
-                                 verbose=True, device="cuda")
+                                 verbose=True)
