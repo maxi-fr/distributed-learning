@@ -6,6 +6,8 @@ from optimizers import LAMB, LARS, DoNothing, SlowMo
 N_WORKERS = 8
 N_LOCAL_STEPS = 8
 LOCAL_BATCH_SIZE = 64
+OPT_SGD_LR = 0.004622
+OPT_SGD_W_DECAY = 0.000012
 
 play_araound = {
     "n_workers": 1,
@@ -60,16 +62,16 @@ mini_batch_adamw = {
     "scheduler.eta_min": 1e-7
     }
 
-local_sgdw = {
-    "n_workers": N_WORKERS,
+local_sgd = {
+    "n_workers": tune.grid_search([2, 4, 8]),
     "n_epochs": 150,
-    "n_local_steps": N_LOCAL_STEPS,
+    "n_local_steps": tune.grid_search([4, 8, 16, 32, 64]),
     "local_batch_size": LOCAL_BATCH_SIZE, # tune.choice([32, 64, 128]), in paper [11] batch size was 64
 
     "local_optimizer_class": torch.optim.SGD,
-    "local_opt.lr": tune.loguniform(1e-5, 1e-2),
+    "local_opt.lr": OPT_SGD_LR,
     "local_opt.momentum": 0.9,
-    "local_opt.weight_decay": tune.loguniform(1e-5, 1e-2),
+    "local_opt.weight_decay": OPT_SGD_W_DECAY,
 
     "global_optimizer_class": DoNothing,
 
