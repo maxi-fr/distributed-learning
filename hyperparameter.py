@@ -1,5 +1,6 @@
 from functools import partial
 import os
+import time
 import ray
 import torch
 from torchvision import datasets, transforms
@@ -72,7 +73,10 @@ def custom_trial_name(trial):
 
 
 if __name__ == "__main__":
-    search_space = experiments_config.mini_batch_adamw
+    experiment_name = "mini_batch_adamw"
+    search_space = getattr(experiments_config, experiment_name)
+
+    experment_folder = os.path.join(os.path.abspath("ray_results"))
 
     train_dataset, val_dataset = load_data()
 
@@ -82,22 +86,21 @@ if __name__ == "__main__":
     reporter = CLIReporter(metric_columns=["val_loss", "val_acc"])
 
     print("Cuda available:", torch.cuda.is_available())
-    
+
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref),
         config=search_space,
         num_samples=24,
         progress_reporter=reporter,
-        storage_path=os.path.abspath("ray_results"),
+        storage_path=experment_folder,
         max_concurrent_trials=1,
         trial_name_creator=custom_trial_name,
         trial_dirname_creator=custom_trial_name,
         metric="val_acc",
         mode="max"
-    )
-    
-    path = os.path.join(os.path.abspath("ray_results"), "mini_batch_adamw.pkl")
-    analysis.dataframe().to_csv(path)    
+    ) 
+    analysis.dataframe().to_pickle(os.path.join(experment_folder, f"{experiment_name}.pkl"))
 
     print("Best hyperparameters found: ", analysis.best_config)
     print("Best validation accuracy: ", analysis.best_result)
+
