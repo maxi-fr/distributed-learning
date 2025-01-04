@@ -1,6 +1,6 @@
 from ray import tune
 import torch
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, PolynomialLR
 from optimizers import LAMB, LARS, DoNothing, SlowMo
 
 N_WORKERS = 8
@@ -74,7 +74,6 @@ local_sgdw = {
     "global_optimizer_class": DoNothing,
 
     "scheduler_class": CosineAnnealingLR,
-    "scheduler.T_max": 150,
     }
 
 local_adamw = {
@@ -90,7 +89,6 @@ local_adamw = {
     "global_optimizer_class": DoNothing,
 
     "scheduler_class": CosineAnnealingLR,
-    "scheduler.T_max": 150,
     "scheduler.eta_min": 1e-6
     }
 
@@ -107,9 +105,8 @@ large_batch_lars = {
 
     "global_optimizer_class": DoNothing,
 
-    "scheduler_class": CosineAnnealingLR,
-    "scheduler.T_max": 150,
-    "scheduler.eta_min": 1e-6
+    "scheduler_class": PolynomialLR,
+    "scheduler.power": 2
     }
 
 large_batch_lamb = {
@@ -126,8 +123,6 @@ large_batch_lamb = {
     "global_optimizer_class": DoNothing,
 
     "scheduler_class": CosineAnnealingLR,
-    "scheduler.T_max": 150,
-    "scheduler.eta_min": 1e-6
     }
 
 

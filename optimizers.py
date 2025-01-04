@@ -21,8 +21,7 @@ class LARS(Optimizer):
         >>> optimizer.step()
     """
 
-    def __init__(self, params, lr=0.01, momentum=0, eta=1e-3, dampening=0,
-                 weight_decay=0, epsilon=0):
+    def __init__(self, params, lr=0.01, momentum=0.9, eta=1e-3, dampening=0, weight_decay=0.0005, epsilon=0):
         if lr < 0.0:
             raise ValueError(f"Invalid lr: {lr}")
         if momentum < 0.0:
@@ -32,6 +31,7 @@ class LARS(Optimizer):
 
         defaults = dict(lr=lr, momentum=momentum, eta=eta, dampening=dampening,
                         weight_decay=weight_decay, epsilon=epsilon)
+        
         super(LARS, self).__init__(params, defaults)
 
     def __setstate__(self, state):
@@ -80,6 +80,7 @@ class LARS(Optimizer):
                     buf = param_state['momentum_buffer'] = torch.clone(d_p).detach()
                 else:
                     buf = param_state['momentum_buffer']
+                
                 buf.mul_(momentum).add_(d_p,alpha=1 - dampening)
 
                 # Adjust gradient further with momentum
@@ -106,8 +107,8 @@ class LAMB(Optimizer):
         adam (bool, optional): sets trust ratio to 1, turning it into Adam
     """
 
-    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-6,
-                 weight_decay=0, adam=False):
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-6, weight_decay=0.01, adam=False):
+
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if not 0.0 <= eps:

@@ -266,6 +266,14 @@ class Trainer:
                 print(f"Gradient norm: {total_norm}")
 
                 raise ValueError("Loss is NaN. Stopping...")
+            
+            
+            if self._scheduler_class is not None:
+                self.scheduler.step()
+                
+                if self.verbose:
+                    current_lr = self.optimizer.param_groups[0]['lr']
+                    print(f"Training step {step + 1}: Learning rate {current_lr:.6f}")
 
 
             self.optimizer.step()
@@ -289,12 +297,6 @@ class Trainer:
                 #         print(f"Early stopping at epoch {epoch + 1}")
                 #         break
 
-            if self._scheduler_class is not None:
-                self.scheduler.step()
-                
-                if self.verbose:
-                    current_lr = self.optimizer.param_groups[0]['lr']
-                    print(f"Training step {step + 1}: Learning rate {current_lr:.6f}")
 
             # if save_every is not None:
             #     if (step + 1) % save_every == 0:
