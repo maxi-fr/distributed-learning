@@ -1,0 +1,14 @@
+{
+  "global_optimizer_class": "<class 'optimizers.DoNothing'>",
+  "local_batch_size": 64,
+  "local_opt.lr": 0.022551762749517167,
+  "local_opt.momentum": 0.9,
+  "local_opt.weight_decay": 0.08765218432618584,
+  "local_optimizer_class": "<class 'torch.optim.sgd.SGD'>",
+  "n_epochs": 150,
+  "n_local_steps": 64,
+  "n_workers": 1,
+  "scheduler.T_max": 150,
+  "scheduler.eta_min": 1e-07,
+  "scheduler_class": "<class 'torch.optim.lr_scheduler.CosineAnnealingLR'>"
+}

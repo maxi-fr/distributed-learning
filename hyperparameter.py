@@ -1,5 +1,6 @@
 from functools import partial
 import os
+import time
 import ray
 import torch
 from torchvision import datasets, transforms
@@ -11,7 +12,7 @@ from ray.tune import CLIReporter
 from distributed import distributed_learning
 from model import evaluate_model, load_data
 import experiments_config
-
+import pickle
 
 
 def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref):
@@ -69,11 +70,12 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
 def custom_trial_name(trial):
     return f"trial_{trial.trial_id}"
 
-def custom_dir_trial_name(trial):
-    return f"trial_dir_{trial.trial_id}"
 
 if __name__ == "__main__":
-    search_space = experiments_config.play_araound
+    experiment_name = "local_sgd"
+    search_space = getattr(experiments_config, experiment_name)
+
+    experment_folder = os.path.join(os.path.abspath("ray_results"))
 
     train_dataset, val_dataset = load_data()
 
@@ -83,19 +85,21 @@ if __name__ == "__main__":
     reporter = CLIReporter(metric_columns=["val_loss", "val_acc"])
 
     print("Cuda available:", torch.cuda.is_available())
-    
+
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref),
         config=search_space,
-        num_samples=7,
+        num_samples=1,
         progress_reporter=reporter,
-        storage_path=os.path.abspath("ray_results"),
+        storage_path=experment_folder,
         max_concurrent_trials=1,
         trial_name_creator=custom_trial_name,
-        trial_dirname_creator=custom_dir_trial_name,
+        trial_dirname_creator=custom_trial_name,
         metric="val_acc",
         mode="max"
-    )
-    
+    ) 
+    analysis.dataframe().to_pickle(os.path.join(experment_folder, f"{experiment_name}.pkl"))
+
     print("Best hyperparameters found: ", analysis.best_config)
     print("Best validation accuracy: ", analysis.best_result)
+

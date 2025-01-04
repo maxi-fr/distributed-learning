@@ -1,7 +1,7 @@
 
 import math
 import time
-from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler
+from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler, PolynomialLR
 from typing import Iterator, Type
 import torch
 from torch.optim.optimizer import Optimizer
@@ -21,6 +21,11 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     
     if device is None:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    if scheduler_class == CosineAnnealingLR:
+        scheduler_params["T_max"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
+    elif scheduler_class == PolynomialLR:
+        scheduler_params["T_max"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
 
     trainers = get_workers(n_workers, local_optimizer_class, local_optimizer_params, 
                            scheduler_class, scheduler_params, device)
@@ -45,6 +50,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
         print("Starting training on device:", device)
         start_time = time.monotonic()
 
+    
     try:
         for epoch in range(n_epochs):
             split_data = shuffle_and_split(train_dataset, n_workers, local_batch_size, device=device, pre_fetch=n_local_steps)
