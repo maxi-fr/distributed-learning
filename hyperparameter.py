@@ -11,7 +11,7 @@ from ray.tune import CLIReporter
 from distributed import distributed_learning
 from model import evaluate_model, load_data
 import experiments_config
-
+import pickle
 
 
 def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref):
@@ -70,11 +70,9 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
 def custom_trial_name(trial):
     return f"trial_{trial.trial_id}"
 
-def custom_dir_trial_name(trial):
-    return f"trial_dir_{trial.trial_id}"
 
 if __name__ == "__main__":
-    search_space = experiments_config.mini_batch_sdg
+    search_space = experiments_config.mini_batch_adamw
 
     train_dataset, val_dataset = load_data()
 
@@ -88,15 +86,18 @@ if __name__ == "__main__":
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref),
         config=search_space,
-        num_samples=20,
+        num_samples=24,
         progress_reporter=reporter,
         storage_path=os.path.abspath("ray_results"),
         max_concurrent_trials=1,
         trial_name_creator=custom_trial_name,
-        trial_dirname_creator=lambda t: f"mini_batch_sgd_{t.trial_id}",
+        trial_dirname_creator=custom_trial_name,
         metric="val_acc",
         mode="max"
     )
     
+    path = os.path.join(os.path.abspath("ray_results"), "mini_batch_adamw.pkl")
+    analysis.dataframe().to_csv(path)    
+
     print("Best hyperparameters found: ", analysis.best_config)
     print("Best validation accuracy: ", analysis.best_result)
