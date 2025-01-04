@@ -53,7 +53,6 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
             raise KeyError("Wrong parameter in 'config' dict: ", scope, param)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # print("!!!!!!!!!!!! Search on:", device)
 
     train_dataset, val_dataset = ray.get(train_data_obj_ref)
 
