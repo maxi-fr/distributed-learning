@@ -73,7 +73,7 @@ def custom_trial_name(trial):
 
 
 if __name__ == "__main__":
-    experiment_name = "local_sgd"
+    experiment_name = "mini_batch_sgd"
     search_space = getattr(experiments_config, experiment_name)
 
     experment_folder = os.path.join(os.path.abspath("ray_results"))
@@ -90,7 +90,7 @@ if __name__ == "__main__":
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref),
         config=search_space,
-        num_samples=1,
+        num_samples=20,
         progress_reporter=reporter,
         storage_path=experment_folder,
         max_concurrent_trials=1,
@@ -99,7 +99,7 @@ if __name__ == "__main__":
         metric="val_acc",
         mode="max"
     ) 
-    analysis.dataframe().to_pickle(os.path.join(experment_folder, f"{experiment_name}.pkl"))
+    analysis.dataframe().to_pickle(os.path.join(experment_folder, f"{experiment_name}_correct_scheduler.pkl"))
 
     print("Best hyperparameters found: ", analysis.best_config)
     print("Best validation accuracy: ", analysis.best_result)

@@ -266,8 +266,9 @@ class Trainer:
                 print(f"Gradient norm: {total_norm}")
 
                 raise ValueError("Loss is NaN. Stopping...")
-            
-            
+
+            self.optimizer.step()
+
             if self._scheduler_class is not None:
                 self.scheduler.step()
                 
@@ -275,8 +276,6 @@ class Trainer:
                     current_lr = self.optimizer.param_groups[0]['lr']
                     print(f"Training step {step + 1}: Learning rate {current_lr:.6f}")
 
-
-            self.optimizer.step()
 
             _, predicted = torch.max(outputs.data, 1)
             correct = (predicted == labels).sum().item()

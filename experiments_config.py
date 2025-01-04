@@ -27,7 +27,7 @@ play_araound = {
     "scheduler.T_max": 150
     }
 
-mini_batch_sdg = {
+mini_batch_sgd = {
     "n_workers": 1,
     "n_epochs": 150,
     "n_local_steps": N_WORKERS * N_LOCAL_STEPS, # for n_workers = 1 doesn't change anything apart from less calls to averaging functions
