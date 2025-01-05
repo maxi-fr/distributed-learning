@@ -53,7 +53,6 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
             raise KeyError("Wrong parameter in 'config' dict: ", scope, param)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # print("!!!!!!!!!!!! Search on:", device)
 
     train_dataset, val_dataset = ray.get(train_data_obj_ref)
 
@@ -90,7 +89,7 @@ if __name__ == "__main__":
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref),
         config=search_space,
-        num_samples=24,
+        num_samples=25,
         progress_reporter=reporter,
         storage_path=experment_folder,
         max_concurrent_trials=1,
@@ -99,7 +98,7 @@ if __name__ == "__main__":
         metric="val_acc",
         mode="max"
     ) 
-    analysis.dataframe().to_pickle(os.path.join(experment_folder, f"{experiment_name}.pkl"))
+    analysis.dataframe().to_pickle(os.path.join(experment_folder, f"{experiment_name}_correct_scheduler.pkl"))
 
     print("Best hyperparameters found: ", analysis.best_config)
     print("Best validation accuracy: ", analysis.best_result)
