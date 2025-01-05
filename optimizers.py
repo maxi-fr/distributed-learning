@@ -205,25 +205,25 @@ class SlowMo(Optimizer):
             momentum = group['momentum']
 
             for p in group['params']:
-                state = self.state[p]
+                p: torch.Tensor
+                state: dict[str, torch.Tensor] = self.state[p]
 
                 if 'momentum_buffer' not in state:
                     state['momentum_buffer'] = torch.zeros_like(p.data)
-                    state['prev_param'] = p.data.clone()
+                    state['prev_param'] = p.data.clone().detach()
 
                 u = state['momentum_buffer']
                 prev_param = state['prev_param']
 
                 # Compute the scaled parameter difference (Δθ_t)
-                param_diff = (p.data - prev_param)/local_lr
+                param_diff = (p - prev_param)/local_lr
 
                 # Update the momentum buffer: u_t = β * u_{t-1} + Δθ_t
                 u.mul_(momentum).add_(param_diff)
 
-                # Update parameters: θ_t = θ_t - lr * local_lr * u_t
-                p.data.add_(u, alpha=-lr*local_lr)
-
-                state['prev_param'].copy_(p.data)
+                # Update parameters: θ_t+1 <- θ_t - lr * local_lr * u_t
+                prev_param.add_(u, alpha=-local_lr*lr)
+                p.copy_(prev_param)
 
         return loss
 

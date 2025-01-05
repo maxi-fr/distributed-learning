@@ -56,7 +56,6 @@ mini_batch_adamw = {
     "global_optimizer_class": DoNothing,
 
     "scheduler_class": CosineAnnealingLR,
-    "scheduler.T_max": 150,
     "scheduler.eta_min": 1e-7
     }
 
@@ -93,15 +92,13 @@ local_adamw = {
     }
 
 large_batch_lars = {
-    "n_workers": N_WORKERS,
+    "n_workers": 1,
     "n_epochs": 150,
     "n_local_steps": 1,
-    "local_batch_size": N_LOCAL_STEPS * LOCAL_BATCH_SIZE, 
+    "local_batch_size": tune.grid_search([512, 1024, 2048, 4096]), 
 
     "local_optimizer_class": LARS,
-    "local_opt.lr": tune.loguniform(1e-5, 1e-2),
-    "local_opt.momentum": 0.9,
-    "local_opt.weight_decay": tune.loguniform(1e-5, 1e-2),
+    "local_opt.lr": tune.loguniform(1e-5, 1e-1),
 
     "global_optimizer_class": DoNothing,
 
@@ -110,19 +107,18 @@ large_batch_lars = {
     }
 
 large_batch_lamb = {
-    "n_workers": N_WORKERS,
+    "n_workers": 1,
     "n_epochs": 150,
     "n_local_steps": 1,
-    "local_batch_size": N_LOCAL_STEPS * LOCAL_BATCH_SIZE, 
+    "local_batch_size": tune.grid_search([512, 1024, 2048, 4096]), 
 
-    "local_optimizer_class": LAMB,
-    "local_opt.lr": tune.loguniform(1e-5, 1e-2),
-    "local_opt.momentum": 0.9,
-    "local_opt.weight_decay": tune.loguniform(1e-5, 1e-2),
+    "local_optimizer_class": LARS,
+    "local_opt.lr": tune.loguniform(1e-5, 1e-1),
 
     "global_optimizer_class": DoNothing,
 
-    "scheduler_class": CosineAnnealingLR,
+    "scheduler_class": PolynomialLR,
+    "scheduler.power": 2
     }
 
 
