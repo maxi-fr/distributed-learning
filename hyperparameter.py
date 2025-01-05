@@ -72,7 +72,7 @@ def custom_trial_name(trial):
 
 
 if __name__ == "__main__":
-    experiment_name = "mini_batch_sgd"
+    experiment_name = "mini_batch_adamw"
     search_space = getattr(experiments_config, experiment_name)
 
     experment_folder = os.path.join(os.path.abspath("ray_results"))
@@ -89,7 +89,7 @@ if __name__ == "__main__":
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref),
         config=search_space,
-        num_samples=20,
+        num_samples=25,
         progress_reporter=reporter,
         storage_path=experment_folder,
         max_concurrent_trials=1,

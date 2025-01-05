@@ -52,14 +52,13 @@ mini_batch_adamw = {
     "local_batch_size": LOCAL_BATCH_SIZE, # tune.choice([32, 64, 128]), in paper [11] batch size was 64
 
     "local_optimizer_class": torch.optim.AdamW,
-    "local_opt.lr": tune.loguniform(1e-6, 1e-1),
+    "local_opt.lr": tune.loguniform(1e-7, 1e-1),
     "local_opt.weight_decay": tune.loguniform(1e-6, 1e-1),
 
     "global_optimizer_class": DoNothing,
 
     "scheduler_class": CosineAnnealingLR,
-    "scheduler.T_max": 150,
-    "scheduler.eta_min": 1e-7
+    "scheduler.eta_min": 1e-6
     }
 
 local_sgd = {
@@ -76,6 +75,7 @@ local_sgd = {
     "global_optimizer_class": DoNothing,
 
     "scheduler_class": CosineAnnealingLR,
+    "scheduler.eta_min": 1e-6
     }
 
 local_adamw = {
