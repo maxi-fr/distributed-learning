@@ -72,7 +72,7 @@ def custom_trial_name(trial):
 
 
 if __name__ == "__main__":
-    experiment_name = "mini_batch_adamw"
+    experiment_name = "large_batch_lars"
     search_space = getattr(experiments_config, experiment_name)
 
     experment_folder = os.path.join(os.path.abspath("ray_results"))
@@ -98,7 +98,7 @@ if __name__ == "__main__":
         metric="val_acc",
         mode="max"
     ) 
-    analysis.dataframe().to_pickle(os.path.join(experment_folder, f"{experiment_name}_correct_scheduler.pkl"))
+    analysis.dataframe().to_pickle(os.path.join(experment_folder, f"{experiment_name}.pkl"))
 
     print("Best hyperparameters found: ", analysis.best_config)
     print("Best validation accuracy: ", analysis.best_result)
