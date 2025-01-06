@@ -97,10 +97,10 @@ local_adamw = {
     }
 
 large_batch_lars = {
-    "n_workers": 1,
+    "n_workers": tune.choice([1, 2, 4, 8, 16, 32]),
     "n_epochs": 150,
     "n_local_steps": 1,
-    "local_batch_size": tune.grid_search([512, 1024, 2048, 4096]), 
+    "local_batch_size": tune.choice([64, 128, 256]), 
 
     "local_optimizer_class": LARS,
     "local_opt.lr": tune.loguniform(1e-5, 1e-1),
