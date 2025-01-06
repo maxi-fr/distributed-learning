@@ -1,0 +1,11 @@
+{
+  "global_optimizer_class": "<class 'optimizers.DoNothing'>",
+  "local_batch_size": 256,
+  "local_opt.lr": 2.076281570034337e-05,
+  "local_optimizer_class": "<class 'optimizers.LARS'>",
+  "n_epochs": 150,
+  "n_local_steps": 1,
+  "n_workers": 8,
+  "scheduler.power": 2,
+  "scheduler_class": "<class 'torch.optim.lr_scheduler.PolynomialLR'>"
+}
