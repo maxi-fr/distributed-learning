@@ -37,6 +37,8 @@ class LARS(Optimizer):
     def __setstate__(self, state):
         super(LARS, self).__setstate__(state)
 
+
+    @torch.no_grad()
     def step(self, closure=None):
         """Performs optimization step.
 
@@ -55,13 +57,14 @@ class LARS(Optimizer):
             dampening = group['dampening']
             epsilon = group['epsilon']
 
+            p: torch.Tensor
             for p in group['params']:
                 if p.grad is None:
                     continue
 
                 # Compute weight- and gradient norm
-                w_norm = torch.norm(p.data)
-                g_norm = torch.norm(p.grad.data)
+                w_norm = torch.norm(p)
+                g_norm = torch.norm(p.grad)
 
                 # Calculate local lr
                 if w_norm * g_norm > 0:
@@ -70,9 +73,9 @@ class LARS(Optimizer):
                     local_lr = 1
 
                 # Adjust gradient with weight decay
-                d_p = p.grad.data
+                d_p = p.grad
                 if weight_decay != 0:
-                    d_p.add_(weight_decay, p.data)
+                    d_p.add_(p, alpha=weight_decay)
 
                 # Apply momentum
                 param_state = self.state[p]
@@ -81,13 +84,13 @@ class LARS(Optimizer):
                 else:
                     buf = param_state['momentum_buffer']
                 
-                buf.mul_(momentum).add_(d_p,alpha=1 - dampening)
+                buf.mul_(momentum).add_(d_p, alpha=1 - dampening)
 
                 # Adjust gradient further with momentum
                 d_p = d_p.add(momentum, buf)
 
                 # Update parameter
-                p.data.add_(-local_lr * group['lr'], d_p)
+                p.add_(d_p, alpha=-local_lr * group['lr'])
 
         return loss
 
@@ -122,6 +125,7 @@ class LAMB(Optimizer):
         self.adam = adam
         super(LAMB, self).__init__(params, defaults)
 
+    @torch.no_grad()
     def step(self, closure=None):
         """Performs a single optimization step.
 
@@ -135,20 +139,23 @@ class LAMB(Optimizer):
 
         for group in self.param_groups:
             for p in group['params']:
+                p: torch.Tensor
+
                 if p.grad is None:
                     continue
-                grad = p.grad.data
+
+                grad = p.grad
                 if grad.is_sparse:
                     raise RuntimeError('Lamb does not support sparse gradients, consider SparseAdam instad.')
 
-                state = self.state[p]
+                state: dict[str, torch.Tensor] = self.state[p]
 
                 # State initialization
                 if len(state) == 0:
                     # Exponential moving average of gradient values
-                    state['exp_avg'] = torch.zeros_like(p.data)
+                    state['exp_avg'] = torch.zeros_like(p)
                     # Exponential moving average of squared gradient values
-                    state['exp_avg_sq'] = torch.zeros_like(p.data)
+                    state['exp_avg_sq'] = torch.zeros_like(p)
 
                 exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
                 beta1, beta2 = group['betas']
@@ -161,24 +168,27 @@ class LAMB(Optimizer):
 
                 step_size = group['lr']
 
-                weight_norm = p.data.pow(2).sum().sqrt().clamp(0, 10)
+                weight_norm = torch.norm(p).clamp(0, 10)
 
                 adam_step = exp_avg / exp_avg_sq.sqrt().add(group['eps'])
                 if group['weight_decay'] != 0:
-                    adam_step.add_(p.data, alpha=group['weight_decay'])
+                    adam_step.add_(p, alpha=group['weight_decay'])
 
-                adam_norm = adam_step.pow(2).sum().sqrt()
+                adam_norm = torch.norm(adam_step)
                 if weight_norm == 0 or adam_norm == 0:
                     trust_ratio = 1
                 else:
                     trust_ratio = weight_norm / adam_norm
+
+                #FIXME: is it necessary to save the folling stuff in the state??
                 state['weight_norm'] = weight_norm
                 state['adam_norm'] = adam_norm
                 state['trust_ratio'] = trust_ratio
+                
                 if self.adam:
                     trust_ratio = 1
 
-                p.data.add_(adam_step, alpha=-step_size * trust_ratio)
+                p.add_(adam_step, alpha=-step_size * trust_ratio)
 
         return loss
 
@@ -194,6 +204,7 @@ class SlowMo(Optimizer):
         defaults = dict(local_lr=local_lr, lr=lr, momentum=momentum)
         super().__init__(params, defaults)
 
+    @torch.no_grad()
     def step(self, closure=None):
         loss = None
         if closure is not None:
@@ -209,8 +220,8 @@ class SlowMo(Optimizer):
                 state: dict[str, torch.Tensor] = self.state[p]
 
                 if 'momentum_buffer' not in state:
-                    state['momentum_buffer'] = torch.zeros_like(p.data)
-                    state['prev_param'] = p.data.clone().detach()
+                    state['momentum_buffer'] = torch.zeros_like(p)
+                    state['prev_param'] = p.clone().detach()
 
                 u = state['momentum_buffer']
                 prev_param = state['prev_param']
@@ -236,7 +247,7 @@ class DoNothing(Optimizer):
     def step(self, bla=None):
         pass
 
-
+@torch.no_grad()
 def average_optimizers(opts: list[Optimizer]) -> None:
     """
     Averages all state values across the given optimizers, inplace.
@@ -249,7 +260,7 @@ def average_optimizers(opts: list[Optimizer]) -> None:
     
     states = [flatten_dict(opt.state) for opt in opts]
 
-
+    x: list[torch.Tensor]
     for x in zip(*states):
         mean = torch.mean(torch.stack(x), dim=0)
         
