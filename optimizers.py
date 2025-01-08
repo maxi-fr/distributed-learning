@@ -1,6 +1,10 @@
 
+from abc import ABC, abstractmethod
+import math
 import torch
 from torch.optim.optimizer import Optimizer
+from torch.optim.lr_scheduler import LRScheduler
+
 
 class LARS(Optimizer):
     """Layer-wise Adaptive Rate Scaling with Momentum
@@ -21,7 +25,7 @@ class LARS(Optimizer):
         >>> optimizer.step()
     """
 
-    def __init__(self, params, lr=0.01, momentum=0.9, eta=1e-3, dampening=0, weight_decay=0.0005, epsilon=0):
+    def __init__(self, params, lr=0.01, momentum=0.9, eta=1, dampening=0, weight_decay=0.0005, epsilon=0):
         if lr < 0.0:
             raise ValueError(f"Invalid lr: {lr}")
         if momentum < 0.0:
@@ -67,7 +71,7 @@ class LARS(Optimizer):
                 g_norm = torch.norm(p.grad)
 
                 # Calculate local lr
-                if w_norm * g_norm > 0:
+                if abs(w_norm * g_norm) > 1e-8:
                     local_lr = eta * w_norm / (g_norm + weight_decay * w_norm + epsilon)
                 else:
                     local_lr = 1
@@ -153,9 +157,9 @@ class LAMB(Optimizer):
                 # State initialization
                 if len(state) == 0:
                     # Exponential moving average of gradient values
-                    state['exp_avg'] = torch.zeros_like(p)
+                    state['exp_avg'] = torch.zeros_like(p, device=p.device)
                     # Exponential moving average of squared gradient values
-                    state['exp_avg_sq'] = torch.zeros_like(p)
+                    state['exp_avg_sq'] = torch.zeros_like(p, device=p.device)
 
                 exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
                 beta1, beta2 = group['betas']
@@ -181,9 +185,9 @@ class LAMB(Optimizer):
                     trust_ratio = weight_norm / adam_norm
 
                 #FIXME: is it necessary to save the folling stuff in the state??
-                state['weight_norm'] = weight_norm
-                state['adam_norm'] = adam_norm
-                state['trust_ratio'] = trust_ratio
+                # state['weight_norm'] = weight_norm
+                # state['adam_norm'] = adam_norm
+                # state['trust_ratio'] = trust_ratio
                 
                 if self.adam:
                     trust_ratio = 1
@@ -204,6 +208,11 @@ class SlowMo(Optimizer):
         defaults = dict(local_lr=local_lr, lr=lr, momentum=momentum)
         super().__init__(params, defaults)
 
+        
+        for group in self.param_groups:
+            for p in group['params']:
+                self.state[p]['prev_param'] = p.clone().detach()
+
     @torch.no_grad()
     def step(self, closure=None):
         loss = None
@@ -220,8 +229,7 @@ class SlowMo(Optimizer):
                 state: dict[str, torch.Tensor] = self.state[p]
 
                 if 'momentum_buffer' not in state:
-                    state['momentum_buffer'] = torch.zeros_like(p)
-                    state['prev_param'] = p.clone().detach()
+                    state['momentum_buffer'] = torch.zeros_like(p, device=p.device)
 
                 u = state['momentum_buffer']
                 prev_param = state['prev_param']
@@ -244,8 +252,144 @@ class DoNothing(Optimizer):
     def __init__(self, params, **defaults):
         super().__init__(params, defaults)
 
-    def step(self, bla=None):
+    def step(self, closure=None):
         pass
+
+
+class LocalAdaScale_local(Optimizer):
+    def __init__(self, params, lr, momentum=0.0):
+        if lr <= 0.0:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        if momentum < 0.0:
+            raise ValueError(f"Invalid momentum value: {momentum}")
+
+        defaults = dict(lr=lr, momentum=momentum)
+        super().__init__(params, defaults)
+        self.state: dict[torch.Tensor, dict[str, torch.Tensor]]
+
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        """
+        Performs a single optimization step.
+
+        Args:
+            closure (callable, optional): A closure that reevaluates the model and returns the loss.
+        """
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        for group in self.param_groups:
+            lr = group['lr']
+            gain_ratio = group["gain_ratio"]
+            momentum = group['momentum']
+
+            for param in group['params']:
+                param: torch.Tensor
+                if param.grad is None:
+                    continue
+
+                grad = param.grad
+
+                state = self.state[param]
+                if momentum > 0:
+                    if 'momentum_buffer' not in state:
+
+                        buf = state['momentum_buffer'] = torch.clone(grad).detach()
+                    else:
+                        buf = state['momentum_buffer']
+
+                        buf.mul_(momentum).add_(grad, alpha=-(1 - momentum)*lr)
+
+                    param_update = buf
+                else:
+                    param_update = -lr * grad
+
+                param.mul_(param_update, alpha=gain_ratio)
+
+        return loss
+
+def gain_ratio(G: torch.Tensor, sigma_sq: torch.Tensor, H, K):
+    s_over_k = sigma_sq/K
+    
+    numerator = 2(G, sigma_sq)
+    denominator = G + s_over_k + torch.sqrt((G + s_over_k)**2 + (3 * (H-1)) * G * sigma_sq)
+
+    return numerator / denominator
+
+def grad_stats(grad_norms: list[float]):
+    K = len(grad_norms)
+
+    grad_norms = torch.as_tensor(grad_norms)
+
+    sq_av_g_norm = torch.mean(grad_norms)**2
+    sq_g_norms = grad_norms ** 2
+
+    sigma_sq = 1/(K-1) * (sq_g_norms.sum() - sq_av_g_norm)
+
+    G = sq_av_g_norm - sigma_sq/K
+
+    return G, sigma_sq
+
+
+def total_gradient_norm(optimizer: Optimizer):
+    """
+    Computes the total gradient L2-norm for all parameters in a model.
+
+    Args:
+        model (torch.nn.Module): The model containing parameters.
+
+    Returns:
+        float: The total gradient norm.
+    """
+    total_norm = 0.0
+    for group in optimizer.param_groups:
+        for param in group['params']:
+            if param.grad is not None:
+                param_norm = (param.grad**2).sum()
+                total_norm += param_norm**2
+
+    total_norm = math.sqrt(total_norm)
+    return total_norm
+
+
+
+class OptimizerManager:
+    def __init__(self, optimizers: list[Optimizer], **manager_params):
+        self.optimizers = optimizers
+
+    def step():
+        pass
+
+class AverageBuffers(OptimizerManager):
+
+    def step(self):
+        average_optimizers(self.optimizers)
+
+class LocalAdaScale_global(OptimizerManager):
+    def __init__(self, optimizers: list[Optimizer], n_local_steps):
+        self.optimizers = optimizers
+        self.H = n_local_steps
+
+        for opt in self.opts:
+            opt.gain_ratio = 1.0
+
+    @torch.no_grad()
+    def step(self):
+        opts = self.opts
+
+        grad_norms = [total_gradient_norm(opt) for opt in opts]
+
+        G, sigma_sq = grad_stats(grad_norms)
+
+        p = gain_ratio(G, sigma_sq, self.H, len(opts))
+
+        for opt in opts:
+            opt.gain_ratio = p
+
+
 
 @torch.no_grad()
 def average_optimizers(opts: list[Optimizer]) -> None:
@@ -284,3 +428,5 @@ def flatten_dict(d: dict) -> list:
         else:
             values.append(v)
     return values
+
+

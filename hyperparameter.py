@@ -33,10 +33,12 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
 
     global_optimizer_class = config.pop("global_optimizer_class")
     local_optimizer_class = config.pop("local_optimizer_class")
+    local_optimizer_manager_class = config.pop("local_optimizer_manager_class")
     scheduler_class = config.pop("scheduler_class")
 
     local_optimizer_params = {}
     global_optimizer_params = {}
+    optimizer_manager_params = {}
     scheduler_params = {}
 
     for key, val in config.items():
@@ -46,6 +48,9 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
 
         elif scope == "global_opt":
             global_optimizer_params[param] = val
+
+        elif scope == "opt_manager":
+            optimizer_manager_params[param] = val
 
         elif scope == "scheduler":
             scheduler_params[param] = val
@@ -58,6 +63,7 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
 
     global_model = distributed_learning(train_dataset, n_epochs, n_workers, n_local_steps, local_batch_size,
                                         global_optimizer_class, global_optimizer_params,
+                                        local_optimizer_manager_class, optimizer_manager_params,
                                         local_optimizer_class, local_optimizer_params,
                                         scheduler_class, scheduler_params, device)
 

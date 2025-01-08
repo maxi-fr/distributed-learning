@@ -9,13 +9,14 @@ from torch.utils.data import DataLoader, random_split, Dataset, DistributedSampl
 from torchvision import datasets, transforms
 from model import load_data
 from model import LeNet5, Trainer, average_model_params, evaluate_model, set_model_params
-from optimizers import DoNothing, SlowMo, average_optimizers, LARS, LAMB
+from optimizers import DoNothing, OptimizerManager, SlowMo, average_optimizers, LARS, LAMB
 
 
 
 
 def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, n_local_steps: int, local_batch_size: int, 
                          global_optimizer_class: Type[Optimizer], global_optimizer_params: dict,
+                         local_optimizer_manager_class: Type[OptimizerManager], optimizer_manager_params: dict,
                          local_optimizer_class: Type[Optimizer], local_optimizer_params: dict,
                          scheduler_class: Type[LRScheduler]=None, scheduler_params: dict=None, device=None, verbose=False):
     
@@ -30,7 +31,8 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     trainers = get_workers(n_workers, local_optimizer_class, local_optimizer_params, 
                            scheduler_class, scheduler_params, device)
     
-    # stop_early = EarlyStopping()
+
+    local_optimizer_manager = local_optimizer_manager_class([t.optimizer for t in trainers], **optimizer_manager_params) 
 
     global_model = LeNet5()
     global_model.to(device)
@@ -38,8 +40,6 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
                                               local_lr=local_optimizer_params["lr"], **global_optimizer_params)
 
     local_models = [tr.model for tr in trainers]
-    local_optimizers = [tr.optimizer for tr in trainers]
-
     
     assert len(train_dataset) > (n_workers * n_local_steps * local_batch_size), "Combination of n_workers, n_local_steps and local_batch_size is bigger than the dataset!"
     
@@ -58,7 +58,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
             for _ in range(steps_per_epoch):
 
                 set_model_params(local_models, global_model)
-                average_optimizers(local_optimizers)
+                local_optimizer_manager.step()
 
                 for i, trainer in enumerate(trainers):
                     data_loader = split_data[i]

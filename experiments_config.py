@@ -1,7 +1,7 @@
 from ray import tune
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR, PolynomialLR
-from optimizers import LAMB, LARS, DoNothing, SlowMo
+from optimizers import LAMB, LARS, DoNothing, SlowMo, LocalAdaScale_local, LocalAdaScale_global, OptimizerManager, AverageBuffers
 
 N_WORKERS = 8
 N_LOCAL_STEPS = 8
@@ -25,6 +25,8 @@ play_araound = {
     "global_opt.lr": tune.loguniform(1e-4, 1e-1),
     "global_opt.momentum": tune.uniform(0.8, 0.95),
 
+    "local_optimizer_manager_class": OptimizerManager, # does not average buffers
+
     "scheduler_class": CosineAnnealingLR,
     "scheduler.T_max": 150
     }
@@ -41,6 +43,8 @@ mini_batch_sgd = {
     "local_opt.weight_decay": tune.loguniform(1e-6, 1e-1),
 
     "global_optimizer_class": DoNothing,
+
+    "local_optimizer_manager_class": AverageBuffers,
 
     "scheduler_class": CosineAnnealingLR,
     "scheduler.T_max": 150,
@@ -59,6 +63,8 @@ mini_batch_adamw = {
 
     "global_optimizer_class": DoNothing,
 
+    "local_optimizer_manager_class": AverageBuffers,
+
     "scheduler_class": CosineAnnealingLR,
     "scheduler.eta_min": 1e-7
     }
@@ -76,6 +82,8 @@ local_sgd = {
 
     "global_optimizer_class": DoNothing,
 
+    "local_optimizer_manager_class": AverageBuffers,
+
     "scheduler_class": CosineAnnealingLR,
     "scheduler.eta_min": 1e-6
     }
@@ -92,6 +100,8 @@ local_adamw = {
 
     "global_optimizer_class": DoNothing,
 
+    "local_optimizer_manager_class": AverageBuffers,
+
     "scheduler_class": CosineAnnealingLR,
     "scheduler.eta_min": 1e-7
     }
@@ -103,27 +113,51 @@ large_batch_lars = {
     "local_batch_size": tune.choice([64, 128, 256]), 
 
     "local_optimizer_class": LARS,
-    "local_opt.lr": tune.loguniform(1e-5, 1e-1),
+    "local_opt.lr": OPT_SGD_LR,
+    "local_opt-weight_decay": OPT_SGD_W_DECAY,
 
     "global_optimizer_class": DoNothing,
+
+    "local_optimizer_manager_class": AverageBuffers,
 
     "scheduler_class": PolynomialLR,
     "scheduler.power": 2
     }
 
 large_batch_lamb = {
-    "n_workers": 1,
+    "n_workers": tune.choice([1, 2, 4, 8, 16, 32]),
     "n_epochs": 150,
     "n_local_steps": 1,
-    "local_batch_size": tune.grid_search([512, 1024, 2048, 4096]), 
+    "local_batch_size": tune.choice([64, 128, 256]), 
 
-    "local_optimizer_class": LARS,
-    "local_opt.lr": tune.loguniform(1e-5, 1e-1),
+    "local_optimizer_class": LAMB,
+    "local_opt.lr": OPT_ADAMW_LR,
+    "local_opt.weight_decay": OPT_ADAMW_W_DECAY,
 
     "global_optimizer_class": DoNothing,
+
+    "local_optimizer_manager_class": AverageBuffers,
 
     "scheduler_class": PolynomialLR,
     "scheduler.power": 2
     }
+
+local_ada_scale = {
+    "n_workers": 8,
+    "n_epochs": 150,
+    "n_local_steps": 32,
+    "local_batch_size": 64, 
+
+    "local_optimizer_class": LocalAdaScale_local,
+    "local_opt.base_lr": 0.01,
+
+    "global_optimizer_class": DoNothing,
+
+    "local_optimizer_manager_class": LocalAdaScale_global,
+    "opt_manager.n_local_steps": 1,
+
+    "scheduler_class": CosineAnnealingLR
+    }
+
 
 
