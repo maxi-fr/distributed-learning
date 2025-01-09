@@ -68,6 +68,37 @@ class LeNet5(nn.Module):
             x = self._softmax(x)
 
         return x
+    
+    def save(self, path: str):
+        """
+        Saves the model architecture and parameters to the specified path.
+
+        Args:
+            path (str): Path to save the model.
+        """
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        torch.save({'model_state_dict': self.state_dict(),
+                    'model_class': self.__class__.__name__}, path)
+
+    @classmethod
+    def load(cls, path: str):
+        """
+        Loads the model architecture and parameters from the specified path.
+
+        Args:
+            path (str): Path to the saved model.
+
+        Returns:
+            LeNet5: An instance of the LeNet5 class with loaded parameters.
+        """
+        checkpoint = torch.load(path)
+        
+        model = cls()
+        
+        model.load_state_dict(checkpoint['model_state_dict'])
+        
+        return model
 
 
 def average_model_params(out: nn.Module, inp: list[nn.Module]) -> None:
