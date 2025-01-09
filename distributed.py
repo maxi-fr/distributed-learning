@@ -1,5 +1,6 @@
 
 import math
+import os
 import time
 from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler, PolynomialLR
 from typing import Iterator, Type
@@ -49,7 +50,6 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     if verbose:
         print("Starting training on device:", device)
         start_time = time.monotonic()
-
     
     try:
         for epoch in range(n_epochs):
@@ -103,43 +103,25 @@ def shuffle_and_split(train_data, N, batch_size, random_seed=None, device= "", p
 
     lengths = [len(train_data) // N] * N
 
-    #if pre_fetch < 1:
-    #pre_fetch = 1
-    #### Prefetching is not working at all! #####
-
-    # TODO: training data can't be evenly split into subsets
-    # try:
-    #     ret =  [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, 
-    #                             pin_memory=True, drop_last=True, pin_memory_device=str(device),
-    #                             prefetch_factor=math.ceil(pre_fetch), num_workers=0)) for subset in random_split(train_data, lengths, random_seed)]
-    # except:
     ret = [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, 
                                pin_memory=True, drop_last=True)) for subset in random_split(train_data, lengths, random_seed)]
     
     return ret
-class EarlyStopping:
-
-    def __init__(self, min_improvement = 0.001, patience = 5):
-        self.min_improv = min_improvement
-        self.patience = patience
-        self.best = 0.0
-        self.steps_without_improvement = 0
-
-    def __call__(self, value: torch.Tensor):
-        value = value.mean().item()
-        if value > self.best + self.min_improv:
-            self.best = value
-            self.steps_without_improvement = 0
-        else:
-            self.steps_without_improvement += 1
-
-        return self.steps_without_improvement >= self.patience
 
 if __name__ == "__main__":
+    from experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY, OPT_ADAMW_LR, OPT_ADAMW_W_DECAY
     train_dataset, val_dataset = load_data()
 
+    name = torch.optim.SGD
     model = distributed_learning(train_dataset, n_epochs=150, n_workers=8, n_local_steps=1, local_batch_size=64, 
                                  global_optimizer_class=DoNothing, global_optimizer_params={},
-                                 local_optimizer_class=LAMB, local_optimizer_params={"lr": 0.01},
-                                 scheduler_class=CosineAnnealingLR, scheduler_params={"T_max": 150, "eta_min": 1e-5},
+                                 local_optimizer_class=name, local_optimizer_params={"lr": OPT_SGD_LR, "weight_decay": OPT_SGD_W_DECAY},
+                                 scheduler_class=CosineAnnealingLR, scheduler_params={"eta_min": 1e-7},
                                  verbose=True)
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    tran = transforms.Compose((transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))))
+    test_dataset = datasets.CIFAR100(root="data", train=False, download=True, transform=tran)
+
+    test_acc = evaluate_model(model, test_dataset, torch.nn.CrossEntropyLoss(), device)
+    model.save(os.path.join("models", name.__name__ + ".lenet"), {"test_acc": test_acc})
