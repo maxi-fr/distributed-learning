@@ -69,7 +69,7 @@ class LeNet5(nn.Module):
 
         return x
     
-    def save(self, path: str):
+    def save(self, path: str, other: dict):
         """
         Saves the model architecture and parameters to the specified path.
 
@@ -79,7 +79,7 @@ class LeNet5(nn.Module):
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
         torch.save({'model_state_dict': self.state_dict(),
-                    'model_class': self.__class__.__name__}, path)
+                    'model_class': self.__class__.__name__, **other}, path)
 
     @classmethod
     def load(cls, path: str):
@@ -185,8 +185,7 @@ def evaluate_model(model, eval_data: Dataset, criterion, device, verbose=True):
     accuracy = correct / len(eval_data)
 
     if verbose:
-        print(f"Evaluation loss:     {av_loss:.4f}")
-        print(f"Evaluation accuracy: {100 * accuracy:.2f}%")
+        print(f"Validation loss/acc: {av_loss:.3f}/{accuracy*100:.2f}%")
 
     return av_loss, accuracy
 
