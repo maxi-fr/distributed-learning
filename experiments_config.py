@@ -95,14 +95,16 @@ local_adamw = {
     "scheduler.eta_min": 1e-7
     }
 
+
 large_batch_lars = {
-    "n_workers": tune.choice([1, 2, 4, 8, 16, 32]),
+    "n_workers": tune.choice([2, 4, 8, 16]),
     "n_epochs": 150,
     "n_local_steps": 1,
     "local_batch_size": tune.choice([64, 128, 256]), 
 
     "local_optimizer_class": LARS,
     "local_opt.lr": tune.loguniform(1e-5, 1e-1),
+    "local_opt.weight_decay": OPT_SGD_W_DECAY,
 
     "global_optimizer_class": DoNothing,
 
@@ -111,18 +113,20 @@ large_batch_lars = {
     }
 
 large_batch_lamb = {
-    "n_workers": 1,
+    "n_workers": tune.grid_search([1, 2, 4, 8, 16, 32]),
     "n_epochs": 150,
     "n_local_steps": 1,
-    "local_batch_size": tune.grid_search([512, 1024, 2048, 4096]), 
+    "local_batch_size": tune.grid_search([64, 128, 256]), 
 
-    "local_optimizer_class": LARS,
-    "local_opt.lr": tune.loguniform(1e-5, 1e-1),
+    "local_optimizer_class": LAMB,
+    "local_opt.lr": OPT_ADAMW_LR,
+    "local_opt.weight_decay": OPT_ADAMW_W_DECAY,
 
     "global_optimizer_class": DoNothing,
 
     "scheduler_class": PolynomialLR,
     "scheduler.power": 2
     }
+
 
 

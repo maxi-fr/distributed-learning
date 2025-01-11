@@ -21,7 +21,7 @@ class LARS(Optimizer):
         >>> optimizer.step()
     """
 
-    def __init__(self, params, lr=0.01, momentum=0.9, eta=1e-3, dampening=0, weight_decay=0.0005, epsilon=0):
+    def __init__(self, params, lr=0.01, momentum=0.9, eta=1, dampening=0, weight_decay=0.0005, epsilon=1):
         if lr < 0.0:
             raise ValueError(f"Invalid lr: {lr}")
         if momentum < 0.0:
@@ -87,7 +87,7 @@ class LARS(Optimizer):
                 buf.mul_(momentum).add_(d_p, alpha=1 - dampening)
 
                 # Adjust gradient further with momentum
-                d_p = d_p.add(momentum, buf)
+                d_p = d_p.add(buf, alpha=momentum)
 
                 # Update parameter
                 p.add_(d_p, alpha=-local_lr * group['lr'])

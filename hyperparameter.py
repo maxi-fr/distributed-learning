@@ -89,7 +89,7 @@ if __name__ == "__main__":
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref),
         config=search_space,
-        num_samples=25,
+        num_samples=35,
         progress_reporter=reporter,
         storage_path=experment_folder,
         max_concurrent_trials=1,
