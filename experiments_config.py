@@ -43,7 +43,6 @@ mini_batch_sgd = {
     "global_optimizer_class": DoNothing,
 
     "scheduler_class": CosineAnnealingLR,
-    "scheduler.T_max": 150,
     "scheduler.eta_min": 1e-7
     }
 
