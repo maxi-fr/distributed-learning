@@ -63,6 +63,9 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
                 for i, trainer in enumerate(trainers):
                     data_loader = split_data[i]
                     train_loss, train_acc = trainer.train_model(data_loader, n_local_steps)
+                print("Len dataloader:", len(data_loader))
+                print("n_local_steps:", n_local_steps)
+                print("steps_per_epoch * n_local_steps: ", steps_per_epoch * n_local_steps)
 
                 average_model_params(global_model, local_models)
 
