@@ -145,7 +145,7 @@ if __name__ == "__main__":
     train_dataset, val_dataset = load_data()
 
     name = torch.optim.SGD
-    model, performance, val_metrics = distributed_learning(train_dataset, n_epochs=150, n_workers=1, n_local_steps=100, local_batch_size=64, 
+    model, performance = distributed_learning(train_dataset, n_epochs=150, n_workers=1, n_local_steps=100, local_batch_size=64, 
                                  global_optimizer_class=DoNothing, global_optimizer_params={},
                                  local_optimizer_class=name, local_optimizer_params={"lr": OPT_SGD_LR, "weight_decay": OPT_SGD_W_DECAY},
                                  scheduler_class=CosineAnnealingLR, scheduler_params={"eta_min": 1e-7},

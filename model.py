@@ -53,6 +53,7 @@ class LeNet5(nn.Module):
             nn.Linear(in_features=CONV2_CH * 6 * 6, out_features=LIN1_CH),
             nn.ReLU(),
             nn.Linear(in_features=LIN1_CH, out_features=LIN2_CH),
+            # nn.Dropout(p=0.2),
             nn.ReLU(),
             nn.Linear(in_features=LIN2_CH, out_features=num_classes)
         )
@@ -336,8 +337,8 @@ class Trainer:
                 print(f"Training progress: [{(step+1)}/{n_steps}], {(time.monotonic()-start_time)/((step+1)):.2f}s per step (batch size: {batch_size})")
 
         if eval_data: 
-            return train_loss, train_acc, eval_loss, eval_acc
-        return train_loss, train_acc
+            return train_loss.mean().item(), train_acc.mean().item(), eval_loss.mean().item(), eval_acc.mean().item()
+        return train_loss.mean().item(), train_acc.mean().item()
 
     def evaluate(self, eval_data: Dataset = None):
         """
@@ -388,13 +389,40 @@ def load_data(data_dir=None, random_seed=69):
     if random_seed is not None:
         random_seed = torch.Generator().manual_seed(random_seed)
 
-    tran = transforms.Compose((transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))))
-    full_train_dataset = datasets.CIFAR100(root=data_dir, train=True, download=True, transform=tran)
+    # tran = transforms.Compose((transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))))
+    # full_train_dataset = datasets.CIFAR100(root=data_dir, train=True, download=True, transform=tran)
 
-    train_size = int(0.8 * len(full_train_dataset))  # 80% for training
-    val_size = len(full_train_dataset) - train_size  # 20% for validation
+    # train_size = int(0.8 * len(full_train_dataset))  # 80% for training
+    # val_size = len(full_train_dataset) - train_size  # 20% for validation
 
-    train_dataset, val_dataset = random_split(full_train_dataset, (train_size, val_size), random_seed)
+    # train_dataset, val_dataset = random_split(full_train_dataset, (train_size, val_size), random_seed)
+
+    
+    train_transforms = transforms.Compose([
+        transforms.RandomHorizontalFlip(),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))  # Normalization
+    ])
+
+    # Validation transforms (only normalization)
+    val_transforms = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))  # Normalization
+    ])
+
+    # Load the full dataset
+    dataset = datasets.CIFAR100(root="data", train=True, download=True)
+
+    # Split into training and validation sets
+    train_size = int(0.8 * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
+    # Assign transforms to the datasets
+    train_dataset.dataset.transform = train_transforms  # Overwrite the transform for training
+    val_dataset.dataset.transform = val_transforms  # Overwrite the transform for validation
+
 
     return train_dataset, val_dataset
 
