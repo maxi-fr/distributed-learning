@@ -11,7 +11,8 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 import copy
 from torch.utils.data import DataLoader, random_split
-from torchvision import datasets, transforms
+from torchvision import datasets
+import torchvision.transforms.v2 as transforms
 from optimizers import LARS
 
 
@@ -41,19 +42,22 @@ class LeNet5(nn.Module):
         super(LeNet5, self).__init__()
 
         self._feature_extractor = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=CONV1_CH, kernel_size=5, stride=1, padding=2),
+            nn.Conv2d(in_channels=3, out_channels=CONV1_CH, kernel_size=5, stride=1, padding=0),
             nn.ReLU(),
+            nn.Dropout(p=0.2),
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.Conv2d(in_channels=CONV1_CH, out_channels=CONV2_CH, kernel_size=5, stride=1, padding=0),
             nn.ReLU(),
+            nn.Dropout(p=0.2),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
 
         self._classifier = nn.Sequential(
             nn.Linear(in_features=CONV2_CH * 6 * 6, out_features=LIN1_CH),
+            nn.Dropout(p=0.2),
             nn.ReLU(),
             nn.Linear(in_features=LIN1_CH, out_features=LIN2_CH),
-            # nn.Dropout(p=0.2),
+            nn.Dropout(p=0.2),
             nn.ReLU(),
             nn.Linear(in_features=LIN2_CH, out_features=num_classes)
         )
@@ -382,7 +386,7 @@ if __name__ == "__main__":
     print("Input shape:", input_tensor.shape)
     print("Output shape:", output.shape)
 
-def load_data(data_dir=None, random_seed=69):
+def load_data(data_dir=None, random_seed=None, test_data=False):
     if data_dir is None:
         data_dir = os.path.abspath("./data")
 
@@ -399,30 +403,46 @@ def load_data(data_dir=None, random_seed=69):
 
     
     train_transforms = transforms.Compose([
+        transforms.ToDtype(torch.float32, scale=True),
         transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))  # Normalization
+        # transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
+        transforms.GaussianNoise(),
+        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
     ])
 
-    # Validation transforms (only normalization)
     val_transforms = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))  # Normalization
+        transforms.ToDtype(torch.float32, scale=True),
+        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
     ])
 
-    # Load the full dataset
-    dataset = datasets.CIFAR100(root="data", train=True, download=True)
+    dataset = datasets.CIFAR100(root="data", train=(not test_data), download=True)
 
-    # Split into training and validation sets
+
+    if test_data:
+        dataset.transform = train_transforms
+        return dataset
+
+
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-    # Assign transforms to the datasets
-    train_dataset.dataset.transform = train_transforms  # Overwrite the transform for training
-    val_dataset.dataset.transform = val_transforms  # Overwrite the transform for validation
-
+    train_dataset = DatasetFromSubset(train_dataset, train_transforms)
+    val_dataset = DatasetFromSubset(val_dataset, val_transforms)
 
     return train_dataset, val_dataset
 
+
+class DatasetFromSubset(Dataset):
+    def __init__(self, subset, transform=None):
+        self.subset = subset
+        self.transform = transform
+
+    def __getitem__(self, index):
+        x, y = self.subset[index]
+        if self.transform:
+            x = self.transform(x)
+        return x, y
+
+    def __len__(self):
+        return len(self.subset)

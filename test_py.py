@@ -68,8 +68,8 @@ performance[["val_loss", "val_acc"]] = val_metrics
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-tran = transforms.Compose((transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))))
-test_dataset = datasets.CIFAR100(root="data", train=False, download=True, transform=tran)
+
+test_dataset = load_data(test_data=True)
 
 test_acc = evaluate_model(model, test_dataset, torch.nn.CrossEntropyLoss(), device)
 
