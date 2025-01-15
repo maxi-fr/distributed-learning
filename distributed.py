@@ -117,8 +117,8 @@ def shuffle_and_split(train_data, N, batch_size, random_seed=None, device= "", p
 
     lengths = [len(train_data) // N] * N
 
-    ret = [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, 
-                               pin_memory=True, drop_last=True)) for subset in random_split(train_data, lengths, random_seed)]
+    ret = [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, n_workers=2,
+                            pin_memory=True, drop_last=True)) for subset in random_split(train_data, lengths, random_seed)]
     
     return ret
 

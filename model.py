@@ -309,7 +309,6 @@ class Trainer:
                     current_lr = self.optimizer.param_groups[0]['lr']
                     print(f"Training step {step + 1}: Learning rate {current_lr:.6f}")
 
-
             _, predicted = torch.max(outputs.data, 1)
             correct = (predicted == labels).sum().item()
 
