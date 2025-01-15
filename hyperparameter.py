@@ -61,8 +61,7 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
                                         local_optimizer_class, local_optimizer_params,
                                         scheduler_class, scheduler_params, device)
 
-    criterion = torch.nn.CrossEntropyLoss()
-    val_loss, val_acc = evaluate_model(global_model, val_dataset, criterion, device, verbose=False)
+    val_loss, val_acc = evaluate_model(global_model, val_dataset, device, verbose=False)
 
     return {"val_loss": val_loss, "val_acc": val_acc}
 

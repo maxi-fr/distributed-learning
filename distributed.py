@@ -81,7 +81,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
                 print(f"Current training loss/acc: {train_metrics[-1][0]:.3f}/{train_metrics[-1][1]*100:.2f}%")
 
             if val_dataset is not None:
-                val_metrics.append(evaluate_model(global_model, val_dataset, torch.nn.CrossEntropyLoss(), device, verbose=True))
+                val_metrics.append(evaluate_model(global_model, val_dataset, device, verbose=True))
                 
     except ValueError as e:
         print(e)

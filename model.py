@@ -154,7 +154,7 @@ def set_model_params(out: list[nn.Module], inp: nn.Module) -> None:
             model_param.data.copy_(inp_param.data)
 
 
-def evaluate_model(model, eval_data: Dataset, criterion, device, verbose=True):
+def evaluate_model(model, eval_data: Dataset, device, verbose=True):
     """
     Evaluates the model on the given dataset.
 
@@ -178,10 +178,10 @@ def evaluate_model(model, eval_data: Dataset, criterion, device, verbose=True):
 
             # Forward pass
             outputs = model(images)
-            loss = criterion(outputs, labels)
+            loss = torch.nn.functional.cross_entropy(outputs, labels, reduction="sum")
 
             # Accumulate loss and accuracy
-            running_loss += loss.item() * labels.size(0)
+            running_loss += loss.item()
             _, predicted = torch.max(outputs.data, 1)
             correct += (predicted == labels).sum().item()
 
@@ -189,7 +189,7 @@ def evaluate_model(model, eval_data: Dataset, criterion, device, verbose=True):
     accuracy = correct / len(eval_data)
 
     if verbose:
-        print(f"Validation loss/acc: {av_loss:.3f}/{accuracy*100:.2f}%")
+        print(f"Validation loss/acc: {av_loss:.3f}/{accuracy*100:.2f}%\n")
 
     return av_loss, accuracy
 
@@ -244,7 +244,6 @@ class Trainer:
         self._scheduler_params = copy.deepcopy(scheduler_params)
 
         self.device = device
-        self.criterion = nn.CrossEntropyLoss()
         self.verbose = verbose
 
     def train_model(self, train_loader: DataLoader, n_steps: int, eval_data: Dataset = None):
@@ -286,7 +285,7 @@ class Trainer:
 
             # Forward pass
             outputs = self.model(images)
-            loss = self.criterion(outputs, labels)
+            loss = torch.nn.functional.cross_entropy(outputs, labels, reduction="mean")
 
             # Backward pass and optimization
             self.optimizer.zero_grad()
@@ -358,7 +357,7 @@ class Trainer:
         if eval_data is None:
             eval_data = self.validation_data
 
-        return evaluate_model(self.model, eval_data, self.criterion, self.device, self.verbose)
+        return evaluate_model(self.model, eval_data, self.device, self.verbose)
 
 
     def reset_model(self, optimizer_params: dict = None, scheduler_params: dict = None):
