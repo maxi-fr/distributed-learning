@@ -13,15 +13,26 @@ import torch
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from models.plotting_metrics import plot_metrics
+from model import Instantiator
 
 
 def centralized_learning(train_dataset: Dataset, n_epochs: int, batch_size: int,
-                         optimizer_class: Type[Optimizer], optimizer_params: dict,
-                         scheduler_class: Type[LRScheduler] = None, scheduler_params: dict = None, 
+                         optimizer_I: Instantiator[Optimizer],
+                         scheduler_I: Instantiator[LRScheduler] = None, 
                          device=None, verbose=False, val_dataset=None) -> tuple[LeNet5, pd.DataFrame]:
 
-    trainer = Trainer(model, optimizer_class, optimizer_params,
-                      device, scheduler_class, scheduler_params, verbose=False)
+    
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+    if issubclass(scheduler_I.var_class, CosineAnnealingLR):
+        scheduler_I.kwargs["T_max"] = n_epochs * len(train_dataset) // batch_size 
+    elif issubclass(scheduler_I.var_class, PolynomialLR):
+        scheduler_I.kwargs["total_iters"] = n_epochs * len(train_dataset) // batch_size 
+
+
+    trainer = Trainer(model, optimizer_I, device, scheduler_I, verbose=False)
 
     d_loader = DataLoader(train_dataset, batch_size, shuffle=True, drop_last=True, pin_memory=True,
                           num_workers=8, prefetch_factor=8, persistent_workers=True)
@@ -62,17 +73,18 @@ if __name__ == "__main__":
     b_sizie = 64
     opt_class = SGD
 
-    model, performance = centralized_learning(train_dataset, n_epochs, b_sizie, opt_class, 
-                                              {"lr": OPT_SGD_LR, "momentum": 0.9, "weight_decay": OPT_SGD_W_DECAY},
-                                              CosineAnnealingLR, {"T_max": n_epochs*len(train_dataset)//b_sizie}, 
-                                              device, True, val_dataset)
+    optimizer_I = Instantiator(opt_class, {"lr": OPT_SGD_LR, "momentum": 0.9, "weight_decay": OPT_SGD_W_DECAY})
+    scheduler_I = Instantiator(CosineAnnealingLR, {"T_max": n_epochs*len(train_dataset)//b_sizie})
+
+    model, performance = centralized_learning(train_dataset, n_epochs, b_sizie, optimizer_I,
+                                              scheduler_I, device, True, val_dataset)
 
     test_dataset = load_data(test_data=True)
 
     test_acc = evaluate_model(model, test_dataset, device)
 
-    add_on = "_blabla_"
-    model.save(os.path.join("models", opt_class.__name__ + add_on + ".lenet"), {"test_acc": test_acc})
+    add_on = opt_class.__name__ + "_blabla_"
 
-    performance.to_csv(os.path.join("models", opt_class.__name__ + add_on + "performance.csv"))
-    plot_metrics(performance, os.path.join("models", opt_class.__name__ + add_on + "performance.png"))
+    model.save(os.path.join("models", add_on + ".lenet"), {"test_acc": test_acc})
+    performance.to_csv(os.path.join("models", add_on + "performance.csv"))
+    plot_metrics(performance, os.path.join("models", add_on + "performance.png"))

@@ -2,7 +2,7 @@ from itertools import cycle
 import os
 import torch.nn as nn
 import time
-from typing import Type
+from typing import Type, Generic, TypeVar
 import torch
 from torch import nn
 import copy
@@ -193,24 +193,33 @@ def evaluate_model(model, eval_data: Dataset, device, verbose=True):
 
     return av_loss, accuracy
 
+
+
+T = TypeVar("T")
+class Instantiator(Generic[T]):
+    def __init__(self, var_class: Type[T], var_kwargs: dict):
+        self.var_class = var_class
+        self.kwargs = var_kwargs
+
+    def instantiate(self, first_arg, **kwargs) -> T:
+        return self.var_class(first_arg, **self.kwargs, **kwargs)
+
+
 class Trainer:
 
-    def __init__(self, model: nn.Module, optimizer_class: Type[Optimizer],
-                 optimizer_params: dict, device, scheduler_class: Type[LRScheduler] = None, scheduler_params: dict = None, verbose=True):
+    def __init__(self, model: nn.Module, optimizer_I: Instantiator[Optimizer],
+                 device, scheduler_I: Instantiator[LRScheduler] = None, verbose=True):
+        #TODO: funktionsbeschreibungen anpassen an die Änderungen
         """
         Initializes the Trainer class for managing the training and evaluation process of a neural network.
 
         Args:
-            training_data (torch.utils.data.Dataset): The dataset to be used for training the model.
-            validation_data (torch.utils.data.Dataset): The dataset to be used for validation during training.
             model (torch.nn.Module): The neural network model to train and evaluate.
-            optimizer_class (Type[torch.optim.Optimizer]): The class of the optimizer to use (e.g., `torch.optim.Adam`).
-            optimizer_params (dict): A dictionary of parameters to initialize the optimizer.
+            optimizer_I (Instantiator[torch.optim.Optimizer]): The class of the optimizer to use (e.g., `torch.optim.Adam`).
             device (torch.device): The device on which to perform computations (`torch.device('cuda')` or `torch.device('cpu')`).
-            scheduler_class (Type[torch.optim.lr_scheduler._LRScheduler], optional): 
+            scheduler_I (Instantiator[torch.optim.lr_scheduler._LRScheduler], optional): 
                 The class of the learning rate scheduler to use (e.g., `torch.optim.lr_scheduler.CosineAnnealingLR`). 
                 Default is None. Scheduler gets updated every batch
-            scheduler_params (dict, optional): A dictionary of parameters to initialize the scheduler. Default is None.
             verbose (bool, optional): If True, prints progress and logs during training and evaluation. Default is True.
 
         Attributes:
@@ -230,18 +239,13 @@ class Trainer:
             verbose (bool): Indicates whether to print progress logs during training and evaluation.
         """
         self.model = model.to(device)
-        self._model_copy = copy.deepcopy(model)
 
-        self.optimizer: Optimizer = optimizer_class(model.parameters(), **optimizer_params)
+        self.optimizer = optimizer_I.instantiate(model.parameters())
 
-        if scheduler_class is not None:
-            self.scheduler: LRScheduler = scheduler_class(self.optimizer, **scheduler_params)
-
-        self._optimizer_class = optimizer_class
-        self._optimizer_params = copy.deepcopy(optimizer_params)
-
-        self._scheduler_class = scheduler_class
-        self._scheduler_params = copy.deepcopy(scheduler_params)
+        if scheduler_I is not None:
+            self.scheduler = scheduler_I.instantiate(self.optimizer)
+        else: 
+            self.scheduler = None
 
         self.device = device
         self.verbose = verbose
@@ -302,7 +306,7 @@ class Trainer:
 
             self.optimizer.step()
 
-            if self._scheduler_class is not None:
+            if self.scheduler is not None:
                 self.scheduler.step()
                 
                 if self.verbose:
@@ -357,22 +361,6 @@ class Trainer:
             eval_data = self.validation_data
 
         return evaluate_model(self.model, eval_data, self.device, self.verbose)
-
-
-    def reset_model(self, optimizer_params: dict = None, scheduler_params: dict = None):
-        self.model: nn.Module = copy.deepcopy(self._model_copy).to(self.device)
-
-        if optimizer_params is None:
-            optimizer_params = self._optimizer_params
-
-        self.optimizer = self._optimizer_class(self.model.parameters(), **optimizer_params)
-
-        if scheduler_params is None:
-            scheduler_params = self._scheduler_params
-
-        if self._scheduler_class is not None:
-            self.scheduler = self._scheduler_class(self.optimizer, **scheduler_params)
-
 
 
 if __name__ == "__main__":

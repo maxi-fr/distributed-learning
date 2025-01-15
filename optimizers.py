@@ -314,7 +314,7 @@ class LocalAdaScale_local(Optimizer):
 def gain_ratio(G: torch.Tensor, sigma_sq: torch.Tensor, H, K):
     s_over_k = sigma_sq/K
     
-    numerator = 2(G, sigma_sq)
+    numerator = 2*(G + sigma_sq)
     denominator = G + s_over_k + torch.sqrt((G + s_over_k)**2 + (3 * (H-1)) * G * sigma_sq)
 
     return numerator / denominator

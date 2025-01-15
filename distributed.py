@@ -5,42 +5,42 @@ import time
 from matplotlib import pyplot as plt
 import pandas as pd
 from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler, PolynomialLR
-from typing import Iterator, Type
+from typing import Generic, Iterator, Type, TypeVar
 import torch
 from torch.optim.optimizer import Optimizer
-from torch.utils.data import DataLoader, random_split, Dataset, DistributedSampler
+from torch.utils.data import DataLoader, random_split, Dataset
 from torchvision import datasets, transforms
-from model import load_data
+from model import Instantiator, load_data
 from model import LeNet5, Trainer, average_model_params, evaluate_model, set_model_params
 from optimizers import DoNothing, OptimizerManager, SlowMo, average_optimizers, LARS, LAMB
 
 
-
-
 def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, n_local_steps: int, local_batch_size: int, 
-                         global_optimizer_class: Type[Optimizer], global_optimizer_params: dict,
-                         local_optimizer_manager_class: Type[OptimizerManager], optimizer_manager_params: dict,
-                         local_optimizer_class: Type[Optimizer], local_optimizer_params: dict,
-                         scheduler_class: Type[LRScheduler]=None, scheduler_params: dict=None, device=None, verbose=False, val_dataset=None):
-    #TODO: make global optimizer have as default value: DoNothing
+                         local_optimizer_I: Instantiator[Optimizer],
+                         optimizer_manager_I: Instantiator[OptimizerManager],
+                         global_optimizer_I: Instantiator[Optimizer]=None,
+                         scheduler_I: Instantiator[LRScheduler]=None, 
+                         device=None, verbose=False, val_dataset=None):
+    
     if device is None:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    if issubclass(scheduler_class, CosineAnnealingLR):
-        scheduler_params["T_max"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
-    elif issubclass(scheduler_class, PolynomialLR):
-        scheduler_params["total_iters"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
+    if issubclass(scheduler_I.var_class, CosineAnnealingLR):
+        scheduler_I.kwargs["T_max"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
+    elif issubclass(scheduler_I.var_class, PolynomialLR):
+        scheduler_I.kwargs["total_iters"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
 
-    trainers = get_workers(n_workers, local_optimizer_class, local_optimizer_params, 
-                           scheduler_class, scheduler_params, device)
+    trainers = get_workers(n_workers, local_optimizer_I, scheduler_I, device)
     
-
-    local_optimizer_manager = local_optimizer_manager_class([t.optimizer for t in trainers], **optimizer_manager_params) 
+    optimizer_manager = optimizer_manager_I.instantiate([t.optimizer for t in trainers]) 
 
     global_model = LeNet5()
     global_model.to(device)
-    global_optimizer = global_optimizer_class(global_model.parameters(), 
-                                              local_lr=local_optimizer_params["lr"], **global_optimizer_params)
+
+    if global_optimizer_I is None:
+        global_optimizer_I = Instantiator(DoNothing, {})
+
+    global_optimizer = global_optimizer_I.instantiate(global_model.parameters(), local_lr=local_optimizer_I.kwargs["lr"])
 
     local_models = [tr.model for tr in trainers]
     
@@ -62,15 +62,15 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
             for _ in range(steps_per_epoch):
 
                 set_model_params(local_models, global_model)
-                local_optimizer_manager.step()
+                optimizer_manager.step()
 
                 train_metrics_w = []
                 for i, trainer in enumerate(trainers):
                     data_loader = split_data[i]
                     train_metrics_w.append(trainer.train_model(data_loader, n_local_steps))
-                print("Len dataloader:", len(data_loader))
-                print("n_local_steps:", n_local_steps)
-                print("steps_per_epoch * n_local_steps: ", steps_per_epoch * n_local_steps)
+                # print("Len dataloader:", len(data_loader))
+                # print("n_local_steps:", n_local_steps)
+                # print("steps_per_epoch * n_local_steps: ", steps_per_epoch * n_local_steps)
 
                 average_model_params(global_model, local_models)
 
@@ -96,8 +96,8 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     return global_model
 
 
-def get_workers(n_workers: int, local_optimizer_class: Type[Optimizer], local_optimizer_params: dict,
-                scheduler_class: Type[LRScheduler]=None, scheduler_params: dict=None, device=None) -> list[Trainer]:
+def get_workers(n_workers: int, local_optimizer_I: Instantiator[Optimizer],
+                scheduler_I: Instantiator[LRScheduler]=None, device=None) -> list[Trainer]:
     trainers = []
 
     if device is None:
@@ -107,8 +107,7 @@ def get_workers(n_workers: int, local_optimizer_class: Type[Optimizer], local_op
         model = LeNet5()
         model.to(device)
 
-        trainers.append(Trainer(model, local_optimizer_class, local_optimizer_params,
-                                device, scheduler_class, scheduler_params, verbose=False))
+        trainers.append(Trainer(model, local_optimizer_I, device, scheduler_I, verbose=False))
         
     return trainers
 
@@ -148,9 +147,8 @@ if __name__ == "__main__":
 
     name = torch.optim.SGD
     model, performance = distributed_learning(train_dataset, n_epochs=150, n_workers=1, n_local_steps=100, local_batch_size=64, 
-                                 global_optimizer_class=DoNothing, global_optimizer_params={},
-                                 local_optimizer_class=name, local_optimizer_params={"lr": OPT_SGD_LR, "weight_decay": OPT_SGD_W_DECAY},
-                                 scheduler_class=CosineAnnealingLR, scheduler_params={"eta_min": 1e-7},
+                                 local_optimizer_I=Instantiator(name, {"lr": OPT_SGD_LR, "weight_decay": OPT_SGD_W_DECAY}),
+                                 scheduler_I=Instantiator(CosineAnnealingLR, {"eta_min": 1e-7}),
                                  verbose=True, val_dataset=val_dataset)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
