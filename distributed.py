@@ -21,7 +21,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
                          global_optimizer_class: Type[Optimizer], global_optimizer_params: dict,
                          local_optimizer_class: Type[Optimizer], local_optimizer_params: dict,
                          scheduler_class: Type[LRScheduler]=None, scheduler_params: dict=None, device=None, verbose=False, val_dataset=None):
-    
+    #TODO: make global optimizer have as default value: DoNothing
     if device is None:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -141,7 +141,7 @@ def plot_metrics(df, fname):
     return fig, (ax1, ax2)
 
 if __name__ == "__main__":
-    from experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY, OPT_ADAMW_LR, OPT_ADAMW_W_DECAY
+    from Results.experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY, OPT_ADAMW_LR, OPT_ADAMW_W_DECAY
     train_dataset, val_dataset = load_data()
 
     name = torch.optim.SGD

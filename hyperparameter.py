@@ -11,7 +11,7 @@ from ray.tune import CLIReporter
 
 from distributed import distributed_learning
 from model import evaluate_model, load_data
-import experiments_config
+import Results.experiments_config as experiments_config
 import pickle
 
 
@@ -75,7 +75,7 @@ if __name__ == "__main__":
     experiment_name = "large_batch_lars"
     search_space = getattr(experiments_config, experiment_name)
 
-    experment_folder = os.path.join(os.path.abspath("ray_results"))
+    experment_folder = os.path.join(os.path.abspath("Results"))
 
     train_dataset, val_dataset = load_data()
 

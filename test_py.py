@@ -5,7 +5,7 @@ from model import Trainer, LeNet5, evaluate_model, load_data
 import torch
 from torch.optim import SGD
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY
+from Results.experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY
 from torch.utils.data import DataLoader, random_split, Dataset, DistributedSampler
 import time
 import matplotlib.pyplot as plt
@@ -55,7 +55,9 @@ val_metrics = []
 print("Starting training on device:", device)
 start_time = time.monotonic()
 for epoch in range(n_epochs):
+    print("hmmm")
     data_loader = iter(DataLoader(train_dataset, b_sizie, shuffle=True, drop_last=True))
+    print("before errroror")
     train_metrics.append(trainer.train_model(data_loader, len(data_loader)))
     
     print(f"Training progress: [{(epoch+1)}/{n_epochs}], {(time.monotonic()-start_time)/((epoch+1)):.2f}s per epoch")
@@ -74,7 +76,7 @@ test_dataset = load_data(test_data=True)
 test_acc = evaluate_model(model, test_dataset, torch.nn.CrossEntropyLoss(), device)
 
 add_on = "_data_transforms_"
-model.save(os.path.join("models", opt_class.__name__ + add_on + ".lenet"), {"test_acc": test_acc})
+model.save(os.path.join("models", opt_class.__name__ + add_on + "model.pkl"), {"test_acc": test_acc})
 
 performance.to_csv(os.path.join("models", opt_class.__name__ + add_on + "performance.csv"))
 plot_metrics(performance, os.path.join("models", opt_class.__name__ + add_on + "performance.png"))
