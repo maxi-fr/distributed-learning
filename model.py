@@ -11,8 +11,8 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 import copy
 from torch.utils.data import DataLoader, random_split
-from torchvision import datasets, transforms
-from optimizers import LARS
+from torchvision import datasets
+import torchvision.transforms.v2 as transforms
 
 
 """
@@ -43,17 +43,21 @@ class LeNet5(nn.Module):
         self._feature_extractor = nn.Sequential(
             nn.Conv2d(in_channels=3, out_channels=CONV1_CH, kernel_size=5, stride=1, padding=2),
             nn.ReLU(),
+            nn.Dropout(p=0.2),
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.Conv2d(in_channels=CONV1_CH, out_channels=CONV2_CH, kernel_size=5, stride=1, padding=0),
             nn.ReLU(),
+            nn.Dropout(p=0.2),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
 
         self._classifier = nn.Sequential(
             nn.Linear(in_features=CONV2_CH * 6 * 6, out_features=LIN1_CH),
             nn.ReLU(),
+            nn.Dropout(p=0.2),
             nn.Linear(in_features=LIN1_CH, out_features=LIN2_CH),
             nn.ReLU(),
+            nn.Dropout(p=0.2),
             nn.Linear(in_features=LIN2_CH, out_features=num_classes)
         )
 
@@ -68,6 +72,37 @@ class LeNet5(nn.Module):
             x = self._softmax(x)
 
         return x
+    
+    def save(self, path: str, other: dict):
+        """
+        Saves the model architecture and parameters to the specified path.
+
+        Args:
+            path (str): Path to save the model.
+        """
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        torch.save({'model_state_dict': self.state_dict(),
+                    'model_class': self.__class__.__name__, **other}, path)
+
+    @classmethod
+    def load(cls, path: str):
+        """
+        Loads the model architecture and parameters from the specified path.
+
+        Args:
+            path (str): Path to the saved model.
+
+        Returns:
+            LeNet5: An instance of the LeNet5 class with loaded parameters.
+        """
+        checkpoint = torch.load(path)
+        
+        model = cls()
+        
+        model.load_state_dict(checkpoint['model_state_dict'])
+        
+        return model
 
 
 def average_model_params(out: nn.Module, inp: list[nn.Module]) -> None:
@@ -119,7 +154,7 @@ def set_model_params(out: list[nn.Module], inp: nn.Module) -> None:
             model_param.data.copy_(inp_param.data)
 
 
-def evaluate_model(model, eval_data: Dataset, criterion, device, verbose=True):
+def evaluate_model(model, eval_data: Dataset, device, verbose=True):
     """
     Evaluates the model on the given dataset.
 
@@ -143,10 +178,10 @@ def evaluate_model(model, eval_data: Dataset, criterion, device, verbose=True):
 
             # Forward pass
             outputs = model(images)
-            loss = criterion(outputs, labels)
+            loss = torch.nn.functional.cross_entropy(outputs, labels, reduction="sum")
 
             # Accumulate loss and accuracy
-            running_loss += loss.item() * labels.size(0)
+            running_loss += loss.item()
             _, predicted = torch.max(outputs.data, 1)
             correct += (predicted == labels).sum().item()
 
@@ -154,8 +189,7 @@ def evaluate_model(model, eval_data: Dataset, criterion, device, verbose=True):
     accuracy = correct / len(eval_data)
 
     if verbose:
-        print(f"Evaluation loss:     {av_loss:.4f}")
-        print(f"Evaluation accuracy: {100 * accuracy:.2f}%")
+        print(f"Validation loss/acc: {av_loss:.3f}/{accuracy*100:.2f}%\n")
 
     return av_loss, accuracy
 
@@ -210,7 +244,6 @@ class Trainer:
         self._scheduler_params = copy.deepcopy(scheduler_params)
 
         self.device = device
-        self.criterion = nn.CrossEntropyLoss()
         self.verbose = verbose
 
     def train_model(self, train_loader: DataLoader, n_steps: int, eval_data: Dataset = None):
@@ -252,7 +285,7 @@ class Trainer:
 
             # Forward pass
             outputs = self.model(images)
-            loss = self.criterion(outputs, labels)
+            loss = torch.nn.functional.cross_entropy(outputs, labels, reduction="mean")
 
             # Backward pass and optimization
             self.optimizer.zero_grad()
@@ -275,7 +308,6 @@ class Trainer:
                 if self.verbose:
                     current_lr = self.optimizer.param_groups[0]['lr']
                     print(f"Training step {step + 1}: Learning rate {current_lr:.6f}")
-
 
             _, predicted = torch.max(outputs.data, 1)
             correct = (predicted == labels).sum().item()
@@ -306,8 +338,8 @@ class Trainer:
                 print(f"Training progress: [{(step+1)}/{n_steps}], {(time.monotonic()-start_time)/((step+1)):.2f}s per step (batch size: {batch_size})")
 
         if eval_data: 
-            return train_loss, train_acc, eval_loss, eval_acc
-        return train_loss, train_acc
+            return train_loss.mean().item(), train_acc.mean().item(), eval_loss.mean().item(), eval_acc.mean().item()
+        return train_loss.mean().item(), train_acc.mean().item()
 
     def evaluate(self, eval_data: Dataset = None):
         """
@@ -324,7 +356,7 @@ class Trainer:
         if eval_data is None:
             eval_data = self.validation_data
 
-        return evaluate_model(self.model, eval_data, self.criterion, self.device, self.verbose)
+        return evaluate_model(self.model, eval_data, self.device, self.verbose)
 
 
     def reset_model(self, optimizer_params: dict = None, scheduler_params: dict = None):
@@ -351,20 +383,57 @@ if __name__ == "__main__":
     print("Input shape:", input_tensor.shape)
     print("Output shape:", output.shape)
 
-def load_data(data_dir=None, random_seed=69):
+def load_data(data_dir=None, random_seed=None, test_data=False):
     if data_dir is None:
         data_dir = os.path.abspath("./data")
 
     if random_seed is not None:
         random_seed = torch.Generator().manual_seed(random_seed)
+    
+    train_transforms = transforms.Compose([
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(), #
+        # transforms.ToImage(),
+        # transforms.ToDtype(torch.float32, scale=True), # to tensor is faster 
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
+        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)) 
+    ])
 
-    tran = transforms.Compose((transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))))
-    full_train_dataset = datasets.CIFAR100(root=data_dir, train=True, download=True, transform=tran)
+    val_transforms = transforms.Compose([
+        transforms.ToTensor(),
+        # transforms.ToImage(),
+        # transforms.ToDtype(torch.float32, scale=True),
+        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+    ])
 
-    train_size = int(0.8 * len(full_train_dataset))  # 80% for training
-    val_size = len(full_train_dataset) - train_size  # 20% for validation
+    dataset = datasets.CIFAR100(root="data", train=(not test_data), download=True)
 
-    train_dataset, val_dataset = random_split(full_train_dataset, (train_size, val_size), random_seed)
+
+    if test_data:
+        dataset.transform = train_transforms
+        return dataset
+
+
+    train_size = int(0.9 * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
+    train_dataset = DatasetFromSubset(train_dataset, train_transforms)
+    val_dataset = DatasetFromSubset(val_dataset, val_transforms)
 
     return train_dataset, val_dataset
 
+
+class DatasetFromSubset(Dataset):
+    def __init__(self, subset, transform=None):
+        self.subset = subset
+        self.transform = transform
+
+    def __getitem__(self, index):
+        x, y = self.subset[index]
+        if self.transform:
+            x = self.transform(x)
+        return x, y
+
+    def __len__(self):
+        return len(self.subset)

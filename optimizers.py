@@ -91,7 +91,7 @@ class LARS(Optimizer):
                 buf.mul_(momentum).add_(d_p, alpha=1 - dampening)
 
                 # Adjust gradient further with momentum
-                d_p = d_p.add(momentum, buf)
+                d_p = d_p.add(buf, alpha=momentum)
 
                 # Update parameter
                 p.add_(d_p, alpha=-local_lr * group['lr'])

@@ -7,3 +7,5 @@ scipy
 IPython
 torchvision
 ray[tune]
+ipykernel
+ipywidgets

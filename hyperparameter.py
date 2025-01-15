@@ -9,9 +9,10 @@ from ray import tune
 from ray.tune import CLIReporter
 # from ray.tune.search.variant_generator import BasicVariantGenerator
 
+from centralized import centralized_learning
 from distributed import distributed_learning
 from model import evaluate_model, load_data
-import experiments_config
+import Results.experiments_config as experiments_config
 import pickle
 
 
@@ -30,6 +31,9 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
     n_workers = config.pop("n_workers", 1)
     local_batch_size = config.pop("local_batch_size")
     n_local_steps = config.pop("n_local_steps", 1)
+
+    is_distributed = n_workers > 1 # or n_local_steps > 1 <- only if optimizer buffers get averaged, 
+    # problem for when merging with local_ada_scale_implementaition branch TODO
 
     global_optimizer_class = config.pop("global_optimizer_class")
     local_optimizer_class = config.pop("local_optimizer_class")
@@ -61,14 +65,17 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
 
     train_dataset, val_dataset = ray.get(train_data_obj_ref)
 
-    global_model = distributed_learning(train_dataset, n_epochs, n_workers, n_local_steps, local_batch_size,
-                                        global_optimizer_class, global_optimizer_params,
-                                        local_optimizer_manager_class, optimizer_manager_params,
-                                        local_optimizer_class, local_optimizer_params,
-                                        scheduler_class, scheduler_params, device)
+    if is_distributed:
+        global_model, _ = distributed_learning(train_dataset, n_epochs, n_workers, n_local_steps, local_batch_size,
+                                            global_optimizer_class, global_optimizer_params,
+                                            local_optimizer_class, local_optimizer_params,
+                                            scheduler_class, scheduler_params, device)
+    else:
+        global_model, _ = centralized_learning(train_dataset, n_epochs, local_batch_size, 
+                                               local_optimizer_class, local_optimizer_params,
+                                               scheduler_class, scheduler_params, device)
 
-    criterion = torch.nn.CrossEntropyLoss()
-    val_loss, val_acc = evaluate_model(global_model, val_dataset, criterion, device, verbose=False)
+    val_loss, val_acc = evaluate_model(global_model, val_dataset, device, verbose=False)
 
     return {"val_loss": val_loss, "val_acc": val_acc}
 
@@ -81,7 +88,7 @@ if __name__ == "__main__":
     experiment_name = "large_batch_lars"
     search_space = getattr(experiments_config, experiment_name)
 
-    experment_folder = os.path.join(os.path.abspath("ray_results"))
+    experment_folder = os.path.join(os.path.abspath("Results"))
 
     train_dataset, val_dataset = load_data()
 
@@ -95,7 +102,7 @@ if __name__ == "__main__":
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref),
         config=search_space,
-        num_samples=25,
+        num_samples=35,
         progress_reporter=reporter,
         storage_path=experment_folder,
         max_concurrent_trials=1,
