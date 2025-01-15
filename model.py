@@ -41,7 +41,7 @@ class LeNet5(nn.Module):
         super(LeNet5, self).__init__()
 
         self._feature_extractor = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=CONV1_CH, kernel_size=5, stride=1, padding=0),
+            nn.Conv2d(in_channels=3, out_channels=CONV1_CH, kernel_size=5, stride=1, padding=2),
             nn.ReLU(),
             nn.Dropout(p=0.2),
             nn.MaxPool2d(kernel_size=2, stride=2),
@@ -53,11 +53,11 @@ class LeNet5(nn.Module):
 
         self._classifier = nn.Sequential(
             nn.Linear(in_features=CONV2_CH * 6 * 6, out_features=LIN1_CH),
-            nn.Dropout(p=0.2),
             nn.ReLU(),
+            nn.Dropout(p=0.2),
             nn.Linear(in_features=LIN1_CH, out_features=LIN2_CH),
-            nn.Dropout(p=0.2),
             nn.ReLU(),
+            nn.Dropout(p=0.2),
             nn.Linear(in_features=LIN2_CH, out_features=num_classes)
         )
 
@@ -391,26 +391,20 @@ def load_data(data_dir=None, random_seed=None, test_data=False):
 
     if random_seed is not None:
         random_seed = torch.Generator().manual_seed(random_seed)
-
-    # tran = transforms.Compose((transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))))
-    # full_train_dataset = datasets.CIFAR100(root=data_dir, train=True, download=True, transform=tran)
-
-    # train_size = int(0.8 * len(full_train_dataset))  # 80% for training
-    # val_size = len(full_train_dataset) - train_size  # 20% for validation
-
-    # train_dataset, val_dataset = random_split(full_train_dataset, (train_size, val_size), random_seed)
-
     
     train_transforms = transforms.Compose([
-        transforms.ToDtype(torch.float32, scale=True),
         transforms.RandomHorizontalFlip(),
-        # transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
-        transforms.GaussianNoise(),
-        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+        transforms.ToTensor(), #
+        # transforms.ToImage(),
+        # transforms.ToDtype(torch.float32, scale=True), # to tensor is faster 
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
+        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)) 
     ])
 
     val_transforms = transforms.Compose([
-        transforms.ToDtype(torch.float32, scale=True),
+        transforms.ToTensor(),
+        # transforms.ToImage(),
+        # transforms.ToDtype(torch.float32, scale=True),
         transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
     ])
 
@@ -422,7 +416,7 @@ def load_data(data_dir=None, random_seed=None, test_data=False):
         return dataset
 
 
-    train_size = int(0.8 * len(dataset))
+    train_size = int(0.9 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
