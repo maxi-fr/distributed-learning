@@ -20,11 +20,22 @@ def centralized_learning(train_dataset: Dataset, n_epochs: int, batch_size: int,
                          scheduler_class: Type[LRScheduler] = None, scheduler_params: dict = None, 
                          device=None, verbose=False, val_dataset=None) -> tuple[LeNet5, pd.DataFrame]:
 
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    model = LeNet5()
+    model.to(device)
+
+    if issubclass(scheduler_class, CosineAnnealingLR):
+        scheduler_params["T_max"] = n_epochs * len(train_dataset) // batch_size
+    elif issubclass(scheduler_class, PolynomialLR):
+        scheduler_params["total_iters"] = n_epochs * len(train_dataset) // batch_size
+
     trainer = Trainer(model, optimizer_class, optimizer_params,
                       device, scheduler_class, scheduler_params, verbose=False)
 
     d_loader = DataLoader(train_dataset, batch_size, shuffle=True, drop_last=True, pin_memory=True,
-                          num_workers=8, prefetch_factor=8, persistent_workers=True)
+                          num_workers=6, prefetch_factor=20, persistent_workers=True)
 
     train_metrics = []
     val_metrics = []
@@ -52,11 +63,7 @@ def centralized_learning(train_dataset: Dataset, n_epochs: int, batch_size: int,
 if __name__ == "__main__":
     train_dataset, val_dataset = load_data()
 
-    model = LeNet5()
-
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    model.to(device)
 
     n_epochs = 150
     b_sizie = 64

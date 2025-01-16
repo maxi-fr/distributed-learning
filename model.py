@@ -2,7 +2,7 @@ from itertools import cycle
 import os
 import torch.nn as nn
 import time
-from typing import Type
+from typing import Iterator, Type
 import torch
 from torch import nn
 import copy
@@ -246,7 +246,7 @@ class Trainer:
         self.device = device
         self.verbose = verbose
 
-    def train_model(self, train_loader: DataLoader, n_steps: int, eval_data: Dataset = None):
+    def train_model(self, train_loader: Iterator[DataLoader], n_steps: int, eval_data: Dataset = None):
         """
         Trains the model on the given training dataset.
 
@@ -275,7 +275,13 @@ class Trainer:
             print(f"Training progress: [0/{n_steps}]")
 
         for step in range(n_steps):
-            images, labels = next(train_loader)
+            try:
+                images, labels = next(train_loader)
+            except StopIteration:
+                if eval_data: 
+                    return train_loss.mean().item(), train_acc.mean().item(), eval_loss.mean().item(), eval_acc.mean().item()
+                return train_loss.mean().item(), train_acc.mean().item() 
+            
             images, labels = images.to(self.device, non_blocking=True), labels.to(self.device, non_blocking=True)
             
             batch_size = labels.size(0)
@@ -290,7 +296,7 @@ class Trainer:
 
             if torch.isnan(loss):
                 total_norm = 0
-                for p in model.parameters():
+                for p in self.model.parameters():
                     if p.grad is not None:
                         total_norm += p.grad.data.norm(2).item()
                 print(f"Gradient norm: {total_norm}")
@@ -323,6 +329,7 @@ class Trainer:
 
         if eval_data: 
             return train_loss.mean().item(), train_acc.mean().item(), eval_loss.mean().item(), eval_acc.mean().item()
+        
         return train_loss.mean().item(), train_acc.mean().item()
 
     def evaluate(self, eval_data: Dataset = None):
@@ -357,15 +364,6 @@ class Trainer:
         if self._scheduler_class is not None:
             self.scheduler = self._scheduler_class(self.optimizer, **scheduler_params)
 
-
-
-if __name__ == "__main__":
-    model = LeNet5(num_classes=100)
-    input_tensor = torch.rand(1, 3, 32, 32)  # Batch size: 1, Channels: 1, Height: 32, Width: 32
-    output = model(input_tensor)
-
-    print("Input shape:", input_tensor.shape)
-    print("Output shape:", output.shape)
 
 def load_data(data_dir=None, random_seed=None, test_data=False):
     if data_dir is None:
