@@ -3,6 +3,7 @@ import math
 import os
 import time
 from matplotlib import pyplot as plt
+import numpy as np
 import pandas as pd
 from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler, PolynomialLR
 from typing import Generic, Iterator, Type, TypeVar
@@ -65,8 +66,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
                 optimizer_manager.step()
 
                 train_metrics_w = []
-                for i, trainer in enumerate(trainers):
-                    data_loader = split_data[i]
+                for data_loader, trainer in zip(split_data, trainers):
                     train_metrics_w.append(trainer.train_model(data_loader, n_local_steps))
                 # print("Len dataloader:", len(data_loader))
                 # print("n_local_steps:", n_local_steps)
@@ -76,7 +76,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
 
                 global_optimizer.step()
 
-                train_metrics.append(torch.mean(train_metrics_w, 0))
+                train_metrics.append(np.mean(train_metrics_w, 0))
 
             if verbose:
                 print(f"Training progress: [{(epoch+1)}/{n_epochs}], {(time.monotonic()-start_time)/((epoch+1)):.2f}s per epoch")
@@ -88,12 +88,12 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     except ValueError as e:
         print(e)
 
+    performance = pd.DataFrame(train_metrics, columns=["train_loss", "train_acc"])
+
     if val_dataset is not None:
-        df = pd.DataFrame(train_metrics, columns=["train_loss", "train_acc"])
-        df[["val_loss", "val_acc"]] = val_metrics
-        return global_model, df
-    
-    return global_model
+        performance[["val_loss", "val_acc"]] = val_metrics
+        
+    return global_model, performance
 
 
 def get_workers(n_workers: int, local_optimizer_I: Instantiator[Optimizer],
@@ -111,14 +111,14 @@ def get_workers(n_workers: int, local_optimizer_I: Instantiator[Optimizer],
         
     return trainers
 
-
+NUM_WORKERS = 8 # found to work nicely with the pc
 def shuffle_and_split(train_data, N, batch_size, random_seed=None, device= "", pre_fetch=1) -> list[Iterator[DataLoader]]:
     if random_seed is not None:
         random_seed = torch.Generator().manual_seed(random_seed)
 
     lengths = [len(train_data) // N] * N
 
-    ret = [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, n_workers=2,
+    ret = [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS//N, 
                             pin_memory=True, drop_last=True)) for subset in random_split(train_data, lengths, random_seed)]
     
     return ret

@@ -250,7 +250,7 @@ class Trainer:
         self.device = device
         self.verbose = verbose
 
-    def train_model(self, train_loader: DataLoader, n_steps: int, eval_data: Dataset = None):
+    def train_model(self, train_loader: Iterator[DataLoader], n_steps: int, eval_data: Dataset = None):
         """
         Trains the model on the given training dataset.
 
@@ -267,9 +267,6 @@ class Trainer:
                 - eval_acc (torch.Tensor): Evaluation accuracy per epoch (if `eval_data` is provided).
         """
 
-        # patience = 5  # parameters for early stopping
-        # delta = 1e-4
-
         self.model.train()
 
         train_loss = torch.empty(n_steps)
@@ -282,7 +279,13 @@ class Trainer:
             print(f"Training progress: [0/{n_steps}]")
 
         for step in range(n_steps):
-            images, labels = next(train_loader)
+            try:
+                images, labels = next(train_loader)
+            except StopIteration:
+                if eval_data: 
+                    return train_loss.mean().item(), train_acc.mean().item(), eval_loss.mean().item(), eval_acc.mean().item()
+                return train_loss.mean().item(), train_acc.mean().item() 
+            
             images, labels = images.to(self.device, non_blocking=True), labels.to(self.device, non_blocking=True)
             
             batch_size = labels.size(0)
@@ -297,7 +300,7 @@ class Trainer:
 
             if torch.isnan(loss):
                 total_norm = 0
-                for p in model.parameters():
+                for p in self.model.parameters():
                     if p.grad is not None:
                         total_norm += p.grad.data.norm(2).item()
                 print(f"Gradient norm: {total_norm}")
@@ -325,24 +328,12 @@ class Trainer:
                 eval_acc[step] = e_acc
                 self.model.train()
 
-                # TODO: early stopping?
-                # if len(cp.eval_loss) > patience:
-                #     recent_losses = cp.eval_loss[-patience:]
-                #     if all(recent_losses[i] >= recent_losses[i + 1] - delta for i in range(len(recent_losses) - 1)):
-                #         print(f"Early stopping at epoch {epoch + 1}")
-                #         break
-
-
-            # if save_every is not None:
-            #     if (step + 1) % save_every == 0:
-            #         cp.epoch = epoch
-            #         cp.save(self.model, self.optimizer)
-
             if self.verbose:
                 print(f"Training progress: [{(step+1)}/{n_steps}], {(time.monotonic()-start_time)/((step+1)):.2f}s per step (batch size: {batch_size})")
 
         if eval_data: 
             return train_loss.mean().item(), train_acc.mean().item(), eval_loss.mean().item(), eval_acc.mean().item()
+        
         return train_loss.mean().item(), train_acc.mean().item()
 
     def evaluate(self, eval_data: Dataset = None):
@@ -362,15 +353,6 @@ class Trainer:
 
         return evaluate_model(self.model, eval_data, self.device, self.verbose)
 
-
-if __name__ == "__main__":
-    model = LeNet5(num_classes=100)
-    input_tensor = torch.rand(1, 3, 32, 32)  # Batch size: 1, Channels: 1, Height: 32, Width: 32
-    output = model(input_tensor)
-
-    print("Input shape:", input_tensor.shape)
-    print("Output shape:", output.shape)
-
 def load_data(data_dir=None, random_seed=None, test_data=False):
     if data_dir is None:
         data_dir = os.path.abspath("./data")
@@ -379,19 +361,21 @@ def load_data(data_dir=None, random_seed=None, test_data=False):
         random_seed = torch.Generator().manual_seed(random_seed)
     
     train_transforms = transforms.Compose([
+        # transforms.RandomCrop((24, 24)),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(), #
         # transforms.ToImage(),
         # transforms.ToDtype(torch.float32, scale=True), # to tensor is faster 
-        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
-        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)) 
+        # transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
+        transforms.Normalize(mean=(0.5071, 0.4865, 0.4409), std=(0.2673, 0.2564, 0.2762)) 
     ])
 
     val_transforms = transforms.Compose([
+        # transforms.CenterCrop((24, 24)),
         transforms.ToTensor(),
         # transforms.ToImage(),
         # transforms.ToDtype(torch.float32, scale=True),
-        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+        transforms.Normalize(mean=(0.5071, 0.4865, 0.4409), std=(0.2673, 0.2564, 0.2762))
     ])
 
     dataset = datasets.CIFAR100(root="data", train=(not test_data), download=True)

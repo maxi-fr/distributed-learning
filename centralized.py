@@ -31,11 +31,13 @@ def centralized_learning(train_dataset: Dataset, n_epochs: int, batch_size: int,
     elif issubclass(scheduler_I.var_class, PolynomialLR):
         scheduler_I.kwargs["total_iters"] = n_epochs * len(train_dataset) // batch_size 
 
+    model = LeNet5()
+    model.to(device)
 
     trainer = Trainer(model, optimizer_I, device, scheduler_I, verbose=False)
 
     d_loader = DataLoader(train_dataset, batch_size, shuffle=True, drop_last=True, pin_memory=True,
-                          num_workers=8, prefetch_factor=8, persistent_workers=True)
+                          num_workers=6, prefetch_factor=20, persistent_workers=True)
 
     train_metrics = []
     val_metrics = []
@@ -63,11 +65,7 @@ def centralized_learning(train_dataset: Dataset, n_epochs: int, batch_size: int,
 if __name__ == "__main__":
     train_dataset, val_dataset = load_data()
 
-    model = LeNet5()
-
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    model.to(device)
 
     n_epochs = 150
     b_sizie = 64

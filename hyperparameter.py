@@ -15,6 +15,7 @@ from model import Instantiator, evaluate_model, load_data
 import Results.experiments_config as experiments_config
 import pickle
 
+from optimizers import DoNothing
 from optimizers import AverageBuffers, DoNothing
 
 
@@ -94,10 +95,10 @@ def custom_trial_name(trial):
 
 
 if __name__ == "__main__":
-    experiment_name = "large_batch_lars"
+    experiment_name = "mini_batch_sgd"
     search_space = getattr(experiments_config, experiment_name)
 
-    experment_folder = os.path.join(os.path.abspath("Results"))
+    experment_folder = os.path.join(os.path.abspath("Results2"))
 
     train_dataset, val_dataset = load_data()
 
@@ -111,7 +112,8 @@ if __name__ == "__main__":
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref),
         config=search_space,
-        num_samples=35,
+        num_samples=-1,
+        time_budget_s= 12 * 60 * 60,
         progress_reporter=reporter,
         storage_path=experment_folder,
         max_concurrent_trials=1,
