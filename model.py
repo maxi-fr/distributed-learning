@@ -323,19 +323,6 @@ class Trainer:
                 eval_acc[step] = e_acc
                 self.model.train()
 
-                # TODO: early stopping?
-                # if len(cp.eval_loss) > patience:
-                #     recent_losses = cp.eval_loss[-patience:]
-                #     if all(recent_losses[i] >= recent_losses[i + 1] - delta for i in range(len(recent_losses) - 1)):
-                #         print(f"Early stopping at epoch {epoch + 1}")
-                #         break
-
-
-            # if save_every is not None:
-            #     if (step + 1) % save_every == 0:
-            #         cp.epoch = epoch
-            #         cp.save(self.model, self.optimizer)
-
             if self.verbose:
                 print(f"Training progress: [{(step+1)}/{n_steps}], {(time.monotonic()-start_time)/((step+1)):.2f}s per step (batch size: {batch_size})")
 
