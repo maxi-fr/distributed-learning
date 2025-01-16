@@ -18,6 +18,8 @@ import pickle
 from optimizers import AverageBuffers, DoNothing
 
 
+# TODO: test hyperparameter search for this branch with all the new stuff, then merge
+
 def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref):
     """
     Wrapper for distributed learning to enable Ray Tune hyperparameter tuning.
