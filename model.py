@@ -424,7 +424,7 @@ class WarmupPolyScheduler(_LRScheduler):
         self.warmup_epochs = warmup_epochs
         self.total_epochs = total_epochs
         self.power = power
-        super(WarmupPolynomialDecayLR, self).__init__(optimizer, last_epoch)
+        super(WarmupPolyScheduler, self).__init__(optimizer, last_epoch)
 
     def get_lr(self):
         if self.last_epoch < self.warmup_epochs:
