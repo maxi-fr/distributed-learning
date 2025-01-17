@@ -100,7 +100,7 @@ if __name__ == "__main__":
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref),
         config=search_space,
         num_samples=-1,
-        time_budget_s= 12 * 60 * 60,
+        time_budget_s= 10 * 60 * 60,
         progress_reporter=reporter,
         storage_path=experment_folder,
         max_concurrent_trials=1,
