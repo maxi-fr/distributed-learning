@@ -196,8 +196,6 @@ class LAMB(Optimizer):
 
         return loss
 
-
-
 class SlowMo(Optimizer):
     def __init__(self, params, local_lr, lr=0.01, momentum=0.9):
         if lr <= 0.0:
@@ -256,7 +254,7 @@ class DoNothing(Optimizer):
         pass
 
 
-class LocalAdaScale_local(Optimizer):
+class LocalAdaScale_Optimizer(Optimizer):
     def __init__(self, params, lr, momentum=0.0):
         if lr <= 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
@@ -363,12 +361,23 @@ class OptimizerManager:
     def step():
         pass
 
-class AverageBuffers(OptimizerManager):
+class AverageOptimizers(OptimizerManager):
 
+    @torch.no_grad()
     def step(self):
-        average_optimizers(self.optimizers)
+        if not self.optimizers:
+            raise ValueError("The list of optimizers is empty.")
+        
+        states = [flatten_dict(opt.state) for opt in self.optimizers]
 
-class LocalAdaScale_global(OptimizerManager):
+        x: list[torch.Tensor]
+        for x in zip(*states):
+            mean = torch.mean(torch.stack(x), dim=0)
+            
+            for state in x:
+                state.copy_(mean)
+
+class LocalAdaScale_Manager(OptimizerManager):
     def __init__(self, optimizers: list[Optimizer], n_local_steps):
         self.optimizers = optimizers
         self.H = n_local_steps
@@ -378,7 +387,7 @@ class LocalAdaScale_global(OptimizerManager):
 
     @torch.no_grad()
     def step(self):
-        opts = self.opts
+        opts = self.optimizers
 
         grad_norms = [total_gradient_norm(opt) for opt in opts]
 
@@ -390,26 +399,6 @@ class LocalAdaScale_global(OptimizerManager):
             opt.gain_ratio = p
 
 
-
-@torch.no_grad()
-def average_optimizers(opts: list[Optimizer]) -> None:
-    """
-    Averages all state values across the given optimizers, inplace.
-
-    Args:
-        opts (list[Optimizer]): A list of PyTorch optimizers. All optimizers must have the same state structure.
-    """
-    if not opts:
-        raise ValueError("The list of optimizers is empty.")
-    
-    states = [flatten_dict(opt.state) for opt in opts]
-
-    x: list[torch.Tensor]
-    for x in zip(*states):
-        mean = torch.mean(torch.stack(x), dim=0)
-        
-        for state in x:
-            state.copy_(mean)
 
 def flatten_dict(d: dict) -> list:
     """

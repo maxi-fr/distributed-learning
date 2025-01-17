@@ -16,7 +16,7 @@ import Results.experiments_config as experiments_config
 import pickle
 
 from optimizers import DoNothing
-from optimizers import AverageBuffers, DoNothing
+from optimizers import AverageOptimizers, DoNothing
 
 
 # TODO: test hyperparameter search for this branch with all the new stuff, then merge
@@ -42,7 +42,7 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
 
     global_optimizer_class = config.pop("global_optimizer_class", DoNothing)
     local_optimizer_class = config.pop("local_optimizer_class")
-    local_optimizer_manager_class = config.pop("local_optimizer_manager_class", AverageBuffers)
+    local_optimizer_manager_class = config.pop("local_optimizer_manager_class", AverageOptimizers)
     scheduler_class = config.pop("scheduler_class")
 
     local_optimizer_params = {}

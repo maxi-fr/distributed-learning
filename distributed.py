@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, random_split, Dataset
 from torchvision import datasets, transforms
 from model import Instantiator, load_data
 from model import LeNet5, Trainer, average_model_params, evaluate_model, set_model_params
-from optimizers import DoNothing, OptimizerManager, SlowMo, average_optimizers, LARS, LAMB
+from optimizers import DoNothing, OptimizerManager, SlowMo, LARS, LAMB
 
 
 def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, n_local_steps: int, local_batch_size: int, 
