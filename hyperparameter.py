@@ -82,7 +82,7 @@ def custom_trial_name(trial):
 
 
 if __name__ == "__main__":
-    experiment_name = "mini_batch_sgd"
+    experiment_name = "mini_batch_adamw"
     search_space = getattr(experiments_config, experiment_name)
 
     experment_folder = os.path.join(os.path.abspath("Results2"))

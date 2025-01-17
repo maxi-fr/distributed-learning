@@ -263,9 +263,6 @@ class Trainer:
                 - eval_acc (torch.Tensor): Evaluation accuracy per epoch (if `eval_data` is provided).
         """
 
-        # patience = 5  # parameters for early stopping
-        # delta = 1e-4
-
         self.model.train()
 
         train_loss = torch.empty(n_steps)
@@ -376,19 +373,21 @@ def load_data(data_dir=None, random_seed=None, test_data=False):
         random_seed = torch.Generator().manual_seed(random_seed)
     
     train_transforms = transforms.Compose([
+        # transforms.RandomCrop((24, 24)),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(), #
         # transforms.ToImage(),
         # transforms.ToDtype(torch.float32, scale=True), # to tensor is faster 
-        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
-        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)) 
+        # transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
+        transforms.Normalize(mean=(0.5071, 0.4865, 0.4409), std=(0.2673, 0.2564, 0.2762)) 
     ])
 
     val_transforms = transforms.Compose([
+        # transforms.CenterCrop((24, 24)),
         transforms.ToTensor(),
         # transforms.ToImage(),
         # transforms.ToDtype(torch.float32, scale=True),
-        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+        transforms.Normalize(mean=(0.5071, 0.4865, 0.4409), std=(0.2673, 0.2564, 0.2762))
     ])
 
     dataset = datasets.CIFAR100(root="data", train=(not test_data), download=True)
