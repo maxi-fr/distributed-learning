@@ -78,8 +78,8 @@ if __name__ == "__main__":
 
     test_acc = evaluate_model(model, test_dataset, device)
 
-    add_on = "_blabla_"
-    model.save(os.path.join("models", opt_class.__name__ + add_on + ".lenet"), {"test_acc": test_acc})
+    add_on = "_crop28_no_DO_w_CJ_"
+    model.save(os.path.join("models2", opt_class.__name__ + add_on + ".lenet"), {"test_acc": test_acc})
 
-    performance.to_csv(os.path.join("models", opt_class.__name__ + add_on + "performance.csv"))
-    plot_metrics(performance, os.path.join("models", opt_class.__name__ + add_on + "performance.png"))
+    performance.to_csv(os.path.join("models2", opt_class.__name__ + add_on + "performance.csv"))
+    plot_metrics(performance, os.path.join("models2", opt_class.__name__ + add_on + "performance.png"))

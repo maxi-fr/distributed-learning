@@ -36,6 +36,8 @@ CONV2_CH = 64
 LIN1_CH = 384
 LIN2_CH = 192
 
+IMG_WH = 28
+
 class LeNet5(nn.Module):
     def __init__(self, num_classes=100): 
         super(LeNet5, self).__init__()
@@ -43,21 +45,21 @@ class LeNet5(nn.Module):
         self._feature_extractor = nn.Sequential(
             nn.Conv2d(in_channels=3, out_channels=CONV1_CH, kernel_size=5, stride=1, padding=2),
             nn.ReLU(),
-            nn.Dropout(p=0.2),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(in_channels=CONV1_CH, out_channels=CONV2_CH, kernel_size=5, stride=1, padding=0),
+            # nn.Dropout(p=0.2),
+            nn.MaxPool2d(kernel_size=2, stride=2), 
+            nn.Conv2d(in_channels=CONV1_CH, out_channels=CONV2_CH, kernel_size=5, stride=1, padding=0), 
             nn.ReLU(),
-            nn.Dropout(p=0.2),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            # nn.Dropout(p=0.2),
+            nn.MaxPool2d(kernel_size=2, stride=2) 
         )
 
         self._classifier = nn.Sequential(
-            nn.Linear(in_features=CONV2_CH * 6 * 6, out_features=LIN1_CH),
+            nn.Linear(in_features=CONV2_CH * (IMG_WH//(2*2) - 2)**2, out_features=LIN1_CH),
             nn.ReLU(),
-            nn.Dropout(p=0.2),
+            # nn.Dropout(p=0.2),
             nn.Linear(in_features=LIN1_CH, out_features=LIN2_CH),
             nn.ReLU(),
-            nn.Dropout(p=0.2),
+            # nn.Dropout(p=0.2),
             nn.Linear(in_features=LIN2_CH, out_features=num_classes)
         )
 
@@ -230,7 +232,6 @@ class Trainer:
             verbose (bool): Indicates whether to print progress logs during training and evaluation.
         """
         self.model = model.to(device)
-        self._model_copy = copy.deepcopy(model)
 
         self.optimizer: Optimizer = optimizer_class(model.parameters(), **optimizer_params)
 
@@ -238,10 +239,8 @@ class Trainer:
             self.scheduler: LRScheduler = scheduler_class(self.optimizer, **scheduler_params)
 
         self._optimizer_class = optimizer_class
-        self._optimizer_params = copy.deepcopy(optimizer_params)
 
         self._scheduler_class = scheduler_class
-        self._scheduler_params = copy.deepcopy(scheduler_params)
 
         self.device = device
         self.verbose = verbose
@@ -350,21 +349,6 @@ class Trainer:
         return evaluate_model(self.model, eval_data, self.device, self.verbose)
 
 
-    def reset_model(self, optimizer_params: dict = None, scheduler_params: dict = None):
-        self.model: nn.Module = copy.deepcopy(self._model_copy).to(self.device)
-
-        if optimizer_params is None:
-            optimizer_params = self._optimizer_params
-
-        self.optimizer = self._optimizer_class(self.model.parameters(), **optimizer_params)
-
-        if scheduler_params is None:
-            scheduler_params = self._scheduler_params
-
-        if self._scheduler_class is not None:
-            self.scheduler = self._scheduler_class(self.optimizer, **scheduler_params)
-
-
 def load_data(data_dir=None, random_seed=None, test_data=False):
     if data_dir is None:
         data_dir = os.path.abspath("./data")
@@ -373,17 +357,17 @@ def load_data(data_dir=None, random_seed=None, test_data=False):
         random_seed = torch.Generator().manual_seed(random_seed)
     
     train_transforms = transforms.Compose([
-        # transforms.RandomCrop((24, 24)),
+        transforms.RandomCrop((IMG_WH, IMG_WH)),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(), #
         # transforms.ToImage(),
         # transforms.ToDtype(torch.float32, scale=True), # to tensor is faster 
-        # transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
+        # transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
         transforms.Normalize(mean=(0.5071, 0.4865, 0.4409), std=(0.2673, 0.2564, 0.2762)) 
     ])
 
     val_transforms = transforms.Compose([
-        # transforms.CenterCrop((24, 24)),
+        transforms.CenterCrop((IMG_WH, IMG_WH)),
         transforms.ToTensor(),
         # transforms.ToImage(),
         # transforms.ToDtype(torch.float32, scale=True),
