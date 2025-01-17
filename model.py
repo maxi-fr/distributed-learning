@@ -421,3 +421,33 @@ class DatasetFromSubset(Dataset):
 
     def __len__(self):
         return len(self.subset)
+    
+    import math
+from torch.optim.lr_scheduler import _LRScheduler
+
+class WarmupPolynomialDecayLR(_LRScheduler):
+    """
+    Custom Learning Rate Scheduler with Warmup.
+
+    Args:
+        optimizer (Optimizer): Wrapped optimizer.
+        warmup_epochs (int): Number of warmup epochs.
+        total_epochs (int): Total number of training epochs.
+        power (float): Power for polynomial decay.
+        last_epoch (int): The index of last epoch. Default: -1.
+    """
+    def __init__(self, optimizer, warmup_epochs, total_epochs, power=2.0, last_epoch=-1):
+        self.warmup_epochs = warmup_epochs
+        self.total_epochs = total_epochs
+        self.power = power
+        super(WarmupPolynomialDecayLR, self).__init__(optimizer, last_epoch)
+
+    def get_lr(self):
+        if self.last_epoch < self.warmup_epochs:
+            # Warmup phase: linear increase
+            warmup_factor = (self.last_epoch + 1) / self.warmup_epochs
+            return [base_lr * warmup_factor for base_lr in self.base_lrs]
+        else:
+            # Polynomial decay phase
+            decay_factor = (1 - (self.last_epoch - self.warmup_epochs) / (self.total_epochs - self.warmup_epochs)) ** self.power
+            return [base_lr * decay_factor for base_lr in self.base_lrs]
