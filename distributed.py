@@ -51,12 +51,19 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     if verbose:
         print("Starting training on device:", device)
         start_time = time.monotonic()
+
+
+    # dataset doesn't have to be split, since both iid and none overlapping data are given 
+    # works exactly as using DistributedSampler for distributed systems 
+    data_loader = DataLoader(train_dataset, local_batch_size, shuffle=True, num_workers=6, prefetch_factor=12,
+                            pin_memory=True, drop_last=True)
+    
     
     train_metrics = []
     val_metrics = []
     try:
         for epoch in range(n_epochs):
-            split_data = shuffle_and_split(train_dataset, n_workers, local_batch_size, device=device, pre_fetch=n_local_steps)
+            data_loader_i = iter(data_loader)
 
             for _ in range(steps_per_epoch):
 
@@ -64,12 +71,8 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
                 average_optimizers(local_optimizers)
 
                 train_metrics_w = []
-                for data_loader, trainer in zip(split_data, trainers):
-                    train_metrics_w.append(trainer.train_model(data_loader, n_local_steps))
-
-                # print("Len dataloader:", len(data_loader))
-                # print("n_local_steps:", n_local_steps)
-                # print("steps_per_epoch * n_local_steps: ", steps_per_epoch * n_local_steps)
+                for trainer in trainers:
+                    train_metrics_w.append(trainer.train_model(data_loader_i, n_local_steps))
 
                 average_model_params(global_model, local_models)
 
@@ -110,18 +113,6 @@ def get_workers(n_workers: int, local_optimizer_class: Type[Optimizer], local_op
                                 device, scheduler_class, scheduler_params, verbose=False))
         
     return trainers
-
-NUM_WORKERS = 8 # found to work nicely with the pc
-def shuffle_and_split(train_data, N, batch_size, random_seed=None, device= "", pre_fetch=1) -> list[Iterator[DataLoader]]:
-    if random_seed is not None:
-        random_seed = torch.Generator().manual_seed(random_seed)
-
-    lengths = [len(train_data) // N] * N
-
-    ret = [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS//N, 
-                            pin_memory=True, drop_last=True)) for subset in random_split(train_data, lengths, random_seed)]
-    
-    return ret
 
 def plot_metric(metric, ax: plt.Axes, **kwargs):
     ax.plot(range(len(metric)), metric, **kwargs)
