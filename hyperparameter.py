@@ -1,5 +1,7 @@
 from functools import partial
+import math
 import os
+import sys
 import time
 import ray
 import torch
@@ -12,7 +14,7 @@ from ray.tune import CLIReporter
 from centralized import centralized_learning
 from distributed import distributed_learning
 from model import evaluate_model, load_data
-import Results.experiments_config as experiments_config
+import Results2.experiments_config as experiments_config
 import pickle
 
 from optimizers import DoNothing
@@ -34,8 +36,10 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
     local_batch_size = config.pop("local_batch_size")
     n_local_steps = config.pop("n_local_steps", 1)
 
-    is_distributed = n_workers > 1 # or n_local_steps > 1 <- only if optimizer buffers get averaged, 
+    is_distributed = n_workers > 1 or n_local_steps > 1 
+    # only if optimizer buffers get averaged, 
     # problem for when merging with local_ada_scale_implementaition branch TODO
+    # is_distributed = n_workers > 1 or (n_local_steps > 1 and issubclass(optimizer_manager, AverageOptimizers))
 
     global_optimizer_class = config.pop("global_optimizer_class", DoNothing)
     local_optimizer_class = config.pop("local_optimizer_class")
@@ -44,6 +48,24 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
     local_optimizer_params = {}
     global_optimizer_params = {}
     scheduler_params = {}
+
+    base_lr = config.pop("local_opt.base_lr", None)
+    if base_lr is not None:
+        lr_scaling = config.pop("local_opt.lr_scaling")
+
+        if lr_scaling == "linear":
+            scale = n_workers
+        elif lr_scaling == "sqrt":
+            scale = math.sqrt(n_workers)
+
+            n_epochs *= n_workers / scale # make n_epoch "scale invariant"
+            # FIXME: mit oder ohne scale inveriant epochs??
+
+        else:
+            raise ValueError("Scaling rule should be one of 'linear' and 'sqrt'")
+
+        config["local_opt.lr"] = base_lr * scale
+
 
     for key, val in config.items():
         (scope, param) = key.split(".")
@@ -82,7 +104,12 @@ def custom_trial_name(trial):
 
 
 if __name__ == "__main__":
-    experiment_name = "mini_batch_adamw"
+    if len(sys.argv) == 2:
+        experiment_name = sys.argv[1]
+    else:
+        experiment_name = "mini_batch_adamw"
+
+    print(experiment_name)
     search_space = getattr(experiments_config, experiment_name)
 
     experment_folder = os.path.join(os.path.abspath("Results2"))

@@ -4,7 +4,7 @@ import pandas as pd
 from model import Trainer, LeNet5, evaluate_model, load_data
 import torch
 from torch.optim import SGD
-from Results.experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY
+from Results2.experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY
 from torch.utils.data import DataLoader, random_split, Dataset
 import time
 from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler, PolynomialLR
