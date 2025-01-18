@@ -56,7 +56,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     # dataset doesn't have to be split, since both iid and none overlapping data are given 
     # works exactly as using DistributedSampler for distributed systems 
     data_loader = DataLoader(train_dataset, local_batch_size, shuffle=True, num_workers=6, prefetch_factor=12,
-                            pin_memory=True, drop_last=True)
+                            pin_memory=True, drop_last=True, persistent_workers=True)
     
     
     train_metrics = []

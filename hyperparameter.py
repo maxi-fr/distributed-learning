@@ -95,9 +95,11 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
                                                local_optimizer_class, local_optimizer_params,
                                                scheduler_class, scheduler_params, device, False, val_or_test_set)
     
-    curr_trial = max([f for f in os.listdir(exp_folder) if os.path.isdir(os.path.join(exp_folder, f))])
-    train_performance.to_csv(os.path.join(experment_folder, curr_trial, "performance.csv"))
-    model.save(os.path.join(experment_folder, curr_trial, "model.pkl"))
+    exp_sub_folder = max([f for f in os.listdir(exp_folder) if os.path.isdir(os.path.join(exp_folder, f))])
+    exp_folder = os.path.join(exp_folder, exp_sub_folder)
+    curr_trial_folder = max([f for f in os.listdir(exp_folder) if os.path.isdir(os.path.join(exp_folder, f))])
+    train_performance.to_csv(os.path.join(exp_folder, curr_trial_folder, "performance.csv"))
+    model.save(os.path.join(exp_folder, curr_trial_folder, "model.pkl"))
 
     if test_mode:
         test_loss, test_acc = evaluate_model(model, test_dataset, device, verbose=False)
@@ -116,7 +118,7 @@ if __name__ == "__main__":
     else:
         experiment_name = "mini_batch_adamw"
 
-    print(experiment_name)
+    print("Starting experiment: ", experiment_name)
     search_space: dict = getattr(experiments_config, experiment_name)
 
     experment_folder = os.path.join(os.path.abspath("Results2"), experiment_name)
@@ -144,7 +146,7 @@ if __name__ == "__main__":
         metric="test_acc" if search_space.get("test_mode", True) else "val_acc",
         mode="max"
     ) 
-    analysis.dataframe().to_pickle(os.path.join(experment_folder, f"{experiment_name}.pkl"))
+    #analysis.dataframe().to_pickle(os.path.join(experment_folder, f"{experiment_name}.pkl"))
 
     print("Best hyperparameters found: ", analysis.best_config)
     print("Best validation accuracy: ", analysis.best_result)
