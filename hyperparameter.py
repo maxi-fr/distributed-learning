@@ -20,7 +20,7 @@ import pickle
 from optimizers import DoNothing
 
 
-def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref):
+def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref, exp_folder):
     """
     Wrapper for distributed learning to enable Ray Tune hyperparameter tuning.
 
@@ -30,7 +30,7 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
     Returns:
         None
     """
-
+    test_mode = config.pop(test_mode, True)
     n_epochs = config.pop("n_epochs", 150)
     n_workers = config.pop("n_workers", 1)
     local_batch_size = config.pop("local_batch_size")
@@ -83,28 +83,32 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     train_dataset, val_dataset, test_dataset = ray.get(train_data_obj_ref)
+    val_or_test_set = test_dataset if test_mode else val_dataset 
 
     if is_distributed:
         model, train_performance = distributed_learning(train_dataset, n_epochs, n_workers, n_local_steps, local_batch_size,
                                             global_optimizer_class, global_optimizer_params,
                                             local_optimizer_class, local_optimizer_params,
-                                            scheduler_class, scheduler_params, device)
+                                            scheduler_class, scheduler_params, device, False, val_or_test_set)
     else:
         model, train_performance = centralized_learning(train_dataset, n_epochs, n_workers * local_batch_size, 
                                                local_optimizer_class, local_optimizer_params,
-                                               scheduler_class, scheduler_params, device)
+                                               scheduler_class, scheduler_params, device, False, val_or_test_set)
+    
+    curr_trial = max([f for f in os.listdir(exp_folder) if os.path.isdir(os.path.join(exp_folder, f))])
+    train_performance.to_csv(os.path.join(experment_folder + curr_trial + "performance.csv"))
+    model.save(os.path.join(experment_folder + curr_trial + "model.pkl"))
 
     if test_mode:
         test_loss, test_acc = evaluate_model(model, test_dataset, device, verbose=False)
-        return {"train_loss": train_loss , "test_loss": test_loss, "test_acc": test_acc}
+        return {"test_loss": test_loss, "test_acc": test_acc}
     
-    val_loss, val_acc = evaluate_model(global_model, val_dataset, device, verbose=False)
+    val_loss, val_acc = evaluate_model(model, val_dataset, device, verbose=False)
     return {"val_loss": val_loss, "val_acc": val_acc}
 
 
 def custom_trial_name(trial):
-    return f"trial_{trial.trial_id}"
-
+    return f"trial_{trial.trial_id.split("_")[-1]}"
 
 if __name__ == "__main__":
     if len(sys.argv) == 2:
@@ -113,9 +117,9 @@ if __name__ == "__main__":
         experiment_name = "mini_batch_adamw"
 
     print(experiment_name)
-    search_space = getattr(experiments_config, experiment_name)
+    search_space: dict = getattr(experiments_config, experiment_name)
 
-    experment_folder = os.path.join(os.path.abspath("Results2"))
+    experment_folder = os.path.join(os.path.abspath("Results2"), experiment_name)
 
     train_dataset, val_dataset = load_data()
 
@@ -127,7 +131,7 @@ if __name__ == "__main__":
     print("Cuda available:", torch.cuda.is_available())
 
     analysis = tune.run(
-        partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref),
+        partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref, exp_folder=experment_folder),
         config=search_space,
         num_samples=-1,
         time_budget_s= 10 * 60 * 60,
@@ -136,7 +140,7 @@ if __name__ == "__main__":
         max_concurrent_trials=1,
         trial_name_creator=custom_trial_name,
         trial_dirname_creator=custom_trial_name,
-        metric="val_acc",
+        metric="test_acc" if search_space.get("test_mode", True) else "val_acc",
         mode="max"
     ) 
     analysis.dataframe().to_pickle(os.path.join(experment_folder, f"{experiment_name}.pkl"))
