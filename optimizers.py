@@ -199,15 +199,14 @@ class WarmupPolynomialDecayLR(_LRScheduler):
 
     Args:
         optimizer (Optimizer): Wrapped optimizer.
-        warmup_epochs (int): Number of warmup epochs.
+        per_warmup_epochs (int): Percentage of warmup epochs from total epochs.
         total_epochs (int): Total number of training epochs.
         power (float): Power for polynomial decay.
         last_epoch (int): The index of last epoch. Default: -1.
     """
 
-    def __init__(self, optimizer, warmup_epochs, total_epochs, power=2.0, last_epoch=-1):
-        # TODO: change to take percent value instead of total
-        self.warmup_epochs = warmup_epochs
+    def __init__(self, optimizer, per_warmup_epochs, total_epochs, power=2.0, last_epoch=-1):
+        self.warmup_epochs = per_warmup_epochs*total_epochs
         self.total_epochs = total_epochs
         self.power = power
         super(WarmupPolynomialDecayLR, self).__init__(optimizer, last_epoch)
