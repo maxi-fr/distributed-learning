@@ -30,7 +30,7 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
     Returns:
         None
     """
-    test_mode = config.pop(test_mode, True)
+    test_mode = config.pop("test_mode", True)
     n_epochs = config.pop("n_epochs", 150)
     n_workers = config.pop("n_workers", 1)
     local_batch_size = config.pop("local_batch_size")
@@ -96,8 +96,8 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
                                                scheduler_class, scheduler_params, device, False, val_or_test_set)
     
     curr_trial = max([f for f in os.listdir(exp_folder) if os.path.isdir(os.path.join(exp_folder, f))])
-    train_performance.to_csv(os.path.join(experment_folder + curr_trial + "performance.csv"))
-    model.save(os.path.join(experment_folder + curr_trial + "model.pkl"))
+    train_performance.to_csv(os.path.join(experment_folder, curr_trial, "performance.csv"))
+    model.save(os.path.join(experment_folder, curr_trial, "model.pkl"))
 
     if test_mode:
         test_loss, test_acc = evaluate_model(model, test_dataset, device, verbose=False)
@@ -122,9 +122,10 @@ if __name__ == "__main__":
     experment_folder = os.path.join(os.path.abspath("Results2"), experiment_name)
 
     train_dataset, val_dataset = load_data()
+    test_dataset = load_data(test_data=True)
 
     ray.init()
-    train_data_obj_ref = ray.put((train_dataset, val_dataset))
+    train_data_obj_ref = ray.put((train_dataset, val_dataset, test_dataset))
 
     reporter = CLIReporter(metric_columns=["val_loss", "val_acc"])
 
@@ -133,8 +134,8 @@ if __name__ == "__main__":
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref, exp_folder=experment_folder),
         config=search_space,
-        num_samples=-1,
-        time_budget_s= 10 * 60 * 60,
+        num_samples=1,
+        # time_budget_s= 10 * 60 * 60,
         progress_reporter=reporter,
         storage_path=experment_folder,
         max_concurrent_trials=1,

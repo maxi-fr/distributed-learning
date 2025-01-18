@@ -75,7 +75,7 @@ class LeNet5(nn.Module):
 
         return x
     
-    def save(self, path: str, other: dict):
+    def save(self, path: str, other: dict={}):
         """
         Saves the model architecture and parameters to the specified path.
 
