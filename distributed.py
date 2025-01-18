@@ -65,12 +65,12 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
         for epoch in range(n_epochs):
             data_loader_i = iter(data_loader)
 
+            train_metrics_w = []
             for _ in range(steps_per_epoch):
 
                 set_model_params(local_models, global_model)
                 average_optimizers(local_optimizers)
 
-                train_metrics_w = []
                 for trainer in trainers:
                     train_metrics_w.append(trainer.train_model(data_loader_i, n_local_steps))
 
@@ -78,7 +78,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
 
                 global_optimizer.step()
 
-                train_metrics.append(np.mean(train_metrics_w, 0))
+            train_metrics.append(np.mean(train_metrics_w, 0))
 
             if verbose:
                 print(f"Training progress: [{(epoch+1)}/{n_epochs}], {(time.monotonic()-start_time)/((epoch+1)):.2f}s per epoch")
