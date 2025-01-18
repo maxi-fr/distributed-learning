@@ -36,7 +36,7 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
     local_batch_size = config.pop("local_batch_size")
     n_local_steps = config.pop("n_local_steps", 1)
 
-    is_distributed = n_workers > 1 or n_local_steps > 1 
+    is_distributed = n_workers > 1 and n_local_steps > 1 
     # only if optimizer buffers get averaged, 
     # problem for when merging with local_ada_scale_implementaition branch TODO
     # is_distributed = n_workers > 1 or (n_local_steps > 1 and issubclass(optimizer_manager, AverageOptimizers))
@@ -58,7 +58,7 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
         elif lr_scaling == "sqrt":
             scale = math.sqrt(n_workers)
 
-            n_epochs *= n_workers / scale # make n_epoch "scale invariant"
+            # n_epochs *= n_workers / scale # make n_epoch "scale invariant"
             # FIXME: mit oder ohne scale inveriant epochs??
 
         else:
@@ -82,20 +82,23 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    train_dataset, val_dataset = ray.get(train_data_obj_ref)
+    train_dataset, val_dataset, test_dataset = ray.get(train_data_obj_ref)
 
     if is_distributed:
-        global_model, _ = distributed_learning(train_dataset, n_epochs, n_workers, n_local_steps, local_batch_size,
+        model, train_performance = distributed_learning(train_dataset, n_epochs, n_workers, n_local_steps, local_batch_size,
                                             global_optimizer_class, global_optimizer_params,
                                             local_optimizer_class, local_optimizer_params,
                                             scheduler_class, scheduler_params, device)
     else:
-        global_model, _ = centralized_learning(train_dataset, n_epochs, local_batch_size, 
+        model, train_performance = centralized_learning(train_dataset, n_epochs, n_workers * local_batch_size, 
                                                local_optimizer_class, local_optimizer_params,
                                                scheduler_class, scheduler_params, device)
 
+    if test_mode:
+        test_loss, test_acc = evaluate_model(model, test_dataset, device, verbose=False)
+        return {"train_loss": train_loss , "test_loss": test_loss, "test_acc": test_acc}
+    
     val_loss, val_acc = evaluate_model(global_model, val_dataset, device, verbose=False)
-
     return {"val_loss": val_loss, "val_acc": val_acc}
 
 
