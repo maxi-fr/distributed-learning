@@ -1,6 +1,7 @@
 
 from abc import ABC, abstractmethod
 import math
+from torch.optim.lr_scheduler import _LRScheduler
 import torch
 from torch.optim.optimizer import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
@@ -35,12 +36,11 @@ class LARS(Optimizer):
 
         defaults = dict(lr=lr, momentum=momentum, eta=eta, dampening=dampening,
                         weight_decay=weight_decay, epsilon=epsilon)
-        
+
         super(LARS, self).__init__(params, defaults)
 
     def __setstate__(self, state):
         super(LARS, self).__setstate__(state)
-
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -87,7 +87,7 @@ class LARS(Optimizer):
                     buf = param_state['momentum_buffer'] = torch.clone(d_p).detach()
                 else:
                     buf = param_state['momentum_buffer']
-                
+
                 buf.mul_(momentum).add_(d_p, alpha=1 - dampening)
 
                 # Adjust gradient further with momentum
@@ -97,7 +97,6 @@ class LARS(Optimizer):
                 p.add_(d_p, alpha=-local_lr * group['lr'])
 
         return loss
-
 
 
 class LAMB(Optimizer):
@@ -195,6 +194,36 @@ class LAMB(Optimizer):
                 p.add_(adam_step, alpha=-step_size * trust_ratio)
 
         return loss
+
+
+class WarmupPolynomialDecayLR(_LRScheduler):
+    """
+    Custom Learning Rate Scheduler with Warmup.
+
+    Args:
+        optimizer (Optimizer): Wrapped optimizer.
+        per_warmup_epochs (int): Percentage of warmup epochs from total epochs.
+        total_epochs (int): Total number of training epochs.
+        power (float): Power for polynomial decay.
+        last_epoch (int): The index of last epoch. Default: -1.
+    """
+
+    def __init__(self, optimizer, per_warmup_epochs, total_epochs, power=2.0, last_epoch=-1):
+        self.warmup_epochs = per_warmup_epochs*total_epochs
+        self.total_epochs = total_epochs
+        self.power = power
+        super(WarmupPolynomialDecayLR, self).__init__(optimizer, last_epoch)
+
+    def get_lr(self):
+        if self.last_epoch < self.warmup_epochs:
+            # Warmup phase: linear increase
+            warmup_factor = (self.last_epoch + 1) / self.warmup_epochs
+            return [base_lr * warmup_factor for base_lr in self.base_lrs]
+        else:
+            # Polynomial decay phase
+            decay_factor = (1 - (self.last_epoch - self.warmup_epochs) / (self.total_epochs - self.warmup_epochs)) ** self.power
+            return [base_lr * decay_factor for base_lr in self.base_lrs]
+
 
 class SlowMo(Optimizer):
     def __init__(self, params, local_lr, lr=0.01, momentum=0.9):

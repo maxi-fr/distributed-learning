@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, random_split, Dataset
 from torchvision import datasets, transforms
 from model import Instantiator, load_data
 from model import LeNet5, Trainer, average_model_params, evaluate_model, set_model_params
-from optimizers import DoNothing, OptimizerManager, SlowMo, LARS, LAMB
+from optimizers import DoNothing, SlowMo, WarmupPolynomialDecayLR, LARS, LAMB, OptimizerManager
 
 
 def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, n_local_steps: int, local_batch_size: int, 
@@ -30,6 +30,8 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
         scheduler_I.kwargs["T_max"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
     elif issubclass(scheduler_I.var_class, PolynomialLR):
         scheduler_I.kwargs["total_iters"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
+    elif issubclass(scheduler_I.var_class, WarmupPolynomialDecayLR):
+        scheduler_I.kwargs["total_epochs"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
 
     trainers = get_workers(n_workers, local_optimizer_I, scheduler_I, device)
     
@@ -53,12 +55,19 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     if verbose:
         print("Starting training on device:", device)
         start_time = time.monotonic()
+
+
+    # dataset doesn't have to be split, since both iid and none overlapping data are given 
+    # works exactly as using DistributedSampler for distributed systems 
+    data_loader = DataLoader(train_dataset, local_batch_size, shuffle=True, num_workers=6, prefetch_factor=12,
+                            pin_memory=True, drop_last=True)
+    
     
     train_metrics = []
     val_metrics = []
     try:
         for epoch in range(n_epochs):
-            split_data = shuffle_and_split(train_dataset, n_workers, local_batch_size, device=device, pre_fetch=n_local_steps)
+            data_loader_i = iter(data_loader)
 
             for _ in range(steps_per_epoch):
 
@@ -66,11 +75,8 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
                 optimizer_manager.step()
 
                 train_metrics_w = []
-                for data_loader, trainer in zip(split_data, trainers):
-                    train_metrics_w.append(trainer.train_model(data_loader, n_local_steps))
-                # print("Len dataloader:", len(data_loader))
-                # print("n_local_steps:", n_local_steps)
-                # print("steps_per_epoch * n_local_steps: ", steps_per_epoch * n_local_steps)
+                for trainer in trainers:
+                    train_metrics_w.append(trainer.train_model(data_loader_i, n_local_steps))
 
                 average_model_params(global_model, local_models)
 
@@ -111,18 +117,6 @@ def get_workers(n_workers: int, local_optimizer_I: Instantiator[Optimizer],
         
     return trainers
 
-NUM_WORKERS = 8 # found to work nicely with the pc
-def shuffle_and_split(train_data, N, batch_size, random_seed=None, device= "", pre_fetch=1) -> list[Iterator[DataLoader]]:
-    if random_seed is not None:
-        random_seed = torch.Generator().manual_seed(random_seed)
-
-    lengths = [len(train_data) // N] * N
-
-    ret = [iter(DataLoader(subset, batch_size=batch_size, shuffle=False, num_workers=NUM_WORKERS//N, 
-                            pin_memory=True, drop_last=True)) for subset in random_split(train_data, lengths, random_seed)]
-    
-    return ret
-
 def plot_metric(metric, ax: plt.Axes, **kwargs):
     ax.plot(range(len(metric)), metric, **kwargs)
     ax.set_xlabel("Epochs")
@@ -142,7 +136,7 @@ def plot_metrics(df, fname):
     return fig, (ax1, ax2)
 
 if __name__ == "__main__":
-    from Results.experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY, OPT_ADAMW_LR, OPT_ADAMW_W_DECAY
+    from Results2.experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY, OPT_ADAMW_LR, OPT_ADAMW_W_DECAY
     train_dataset, val_dataset = load_data()
 
     name = torch.optim.SGD

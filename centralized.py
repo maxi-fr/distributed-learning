@@ -4,7 +4,7 @@ import pandas as pd
 from model import Trainer, LeNet5, evaluate_model, load_data
 import torch
 from torch.optim import SGD
-from Results.experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY
+from Results2.experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY
 from torch.utils.data import DataLoader, random_split, Dataset
 import time
 from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler, PolynomialLR
@@ -81,8 +81,8 @@ if __name__ == "__main__":
 
     test_acc = evaluate_model(model, test_dataset, device)
 
-    add_on = opt_class.__name__ + "_blabla_"
+    add_on = "_crop28_no_DO_w_CJ_"
+    model.save(os.path.join("models2", opt_class.__name__ + add_on + ".lenet"), {"test_acc": test_acc})
 
-    model.save(os.path.join("models", add_on + ".lenet"), {"test_acc": test_acc})
-    performance.to_csv(os.path.join("models", add_on + "performance.csv"))
-    plot_metrics(performance, os.path.join("models", add_on + "performance.png"))
+    performance.to_csv(os.path.join("models2", opt_class.__name__ + add_on + "performance.csv"))
+    plot_metrics(performance, os.path.join("models2", opt_class.__name__ + add_on + "performance.png"))
