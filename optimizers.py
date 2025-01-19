@@ -389,6 +389,7 @@ class LocalAdaScale_Manager(OptimizerManager):
     def step(self):
         opts = self.optimizers
 
+        # FIXME: Gradient norms should be calculated right after synchronization
         grad_norms = [total_gradient_norm(opt) for opt in opts]
 
         G, sigma_sq = grad_stats(grad_norms)
