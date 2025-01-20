@@ -294,6 +294,7 @@ class LocalAdaScale_Optimizer(Optimizer):
         super().__init__(params, defaults)
         self.state: dict[torch.Tensor, dict[str, torch.Tensor]]
 
+        self.just_synchronized = True
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -308,9 +309,14 @@ class LocalAdaScale_Optimizer(Optimizer):
             with torch.enable_grad():
                 loss = closure()
 
+        
+        if self.just_synchronized:
+            self.cache_grad_norm = total_gradient_norm(self)
+        self.just_synchronized = False
+        self.gain_ratio = 1.
+            
         for group in self.param_groups:
             lr = group['lr']
-            gain_ratio = group["gain_ratio"]
             momentum = group['momentum']
 
             for param in group['params']:
@@ -334,7 +340,7 @@ class LocalAdaScale_Optimizer(Optimizer):
                 else:
                     param_update = -lr * grad
 
-                param.mul_(param_update, alpha=gain_ratio)
+                param.mul_(param_update, alpha=self.gain_ratio)
 
         return loss
 
@@ -407,25 +413,22 @@ class AverageOptimizers(OptimizerManager):
                 state.copy_(mean)
 
 class LocalAdaScale_Manager(OptimizerManager):
-    def __init__(self, optimizers: list[Optimizer], n_local_steps):
+    def __init__(self, optimizers: list[LocalAdaScale_Optimizer], n_local_steps):
         self.optimizers = optimizers
         self.H = n_local_steps
-
-        for opt in self.opts:
-            opt.gain_ratio = 1.0
 
     @torch.no_grad()
     def step(self):
         opts = self.optimizers
 
-        # FIXME: Gradient norms should be calculated right after synchronization
-        grad_norms = [total_gradient_norm(opt) for opt in opts]
+        grad_norms = [opt.cache_grad_norm for opt in opts]
 
         G, sigma_sq = grad_stats(grad_norms)
 
         p = gain_ratio(G, sigma_sq, self.H, len(opts))
 
         for opt in opts:
+            opt.just_synchronized = True
             opt.gain_ratio = p
 
 
