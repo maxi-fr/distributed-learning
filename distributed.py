@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, random_split, Dataset, DistributedSampl
 from torchvision import datasets, transforms
 from model import load_data
 from model import LeNet5, Trainer, average_model_params, evaluate_model, set_model_params
-from optimizers import DoNothing, SlowMo, WarmupPolynomialDecayLR, average_optimizers, LARS, LAMB
+from optimizers import DoNothing, SlowMo, WarmupCosineAnnealing, average_optimizers, LARS, LAMB
 
 
 def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, n_local_steps: int, local_batch_size: int, 
@@ -28,7 +28,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
         scheduler_params["T_max"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
     elif issubclass(scheduler_class, PolynomialLR):
         scheduler_params["total_iters"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
-    elif issubclass(scheduler_class, WarmupPolynomialDecayLR):
+    elif issubclass(scheduler_class, WarmupCosineAnnealing):
         scheduler_params["total_epochs"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
 
     trainers = get_workers(n_workers, local_optimizer_class, local_optimizer_params, 
