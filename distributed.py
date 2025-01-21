@@ -24,12 +24,13 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     if device is None:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    total_steps = n_epochs * len(train_dataset) // (n_workers * local_batch_size)
     if issubclass(scheduler_class, CosineAnnealingLR):
-        scheduler_params["T_max"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
+        scheduler_params["T_max"] = total_steps 
     elif issubclass(scheduler_class, PolynomialLR):
-        scheduler_params["total_iters"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
+        scheduler_params["total_iters"] = total_steps 
     elif issubclass(scheduler_class, WarmupCosineAnnealing):
-        scheduler_params["total_epochs"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
+        scheduler_params["total_epochs"] = total_steps 
 
     trainers = get_workers(n_workers, local_optimizer_class, local_optimizer_params, 
                            scheduler_class, scheduler_params, device)

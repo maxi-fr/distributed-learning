@@ -116,7 +116,7 @@ if __name__ == "__main__":
     if len(sys.argv) == 2:
         experiment_name = sys.argv[1]
     else:
-        experiment_name = "mini_batch_adamw"
+        raise Exception("set experiment name through CLI")
 
     print("Starting experiment: ", experiment_name)
     search_space: dict = getattr(experiments_config, experiment_name)
@@ -129,14 +129,14 @@ if __name__ == "__main__":
     ray.init()
     train_data_obj_ref = ray.put((train_dataset, val_dataset, test_dataset))
 
-    reporter = CLIReporter(metric_columns=["val_loss", "val_acc"])
+    reporter = CLIReporter(metric_columns=["test_acc" if search_space.get("test_mode", True) else "val_acc"])
 
     print("Cuda available:", torch.cuda.is_available())
 
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref, exp_folder=experment_folder),
         config=search_space,
-        num_samples=10,
+        num_samples=12,
         # time_budget_s= 10 * 60 * 60,
         progress_reporter=reporter,
         storage_path=experment_folder,

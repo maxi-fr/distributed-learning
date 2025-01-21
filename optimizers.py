@@ -208,7 +208,7 @@ class WarmupCosineAnnealing(_LRScheduler):
     def __init__(self, optimizer, per_warmup_epochs, total_epochs, last_epoch=-1):
         self.warmup_epochs = per_warmup_epochs*total_epochs
         self.total_epochs = total_epochs
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, total_epochs-self.warmup_epochs)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_epochs-self.warmup_epochs)
         super(WarmupCosineAnnealing, self).__init__(optimizer, last_epoch)
 
     def get_lr(self):
