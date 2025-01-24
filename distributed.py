@@ -38,7 +38,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     global_model = LeNet5()
     global_model.to(device)
     global_optimizer = global_optimizer_class(global_model.parameters(), 
-                                              local_lr=local_optimizer_params["lr"], **global_optimizer_params)
+                                              local_opt=trainers[0].optimizer, **global_optimizer_params)
 
     local_models = [tr.model for tr in trainers]
     local_optimizers = [tr.optimizer for tr in trainers]
@@ -138,10 +138,10 @@ if __name__ == "__main__":
     train_dataset, val_dataset = load_data()
 
     name = torch.optim.SGD
-    model, performance = distributed_learning(train_dataset, n_epochs=150, n_workers=1, n_local_steps=100, local_batch_size=64, 
-                                 global_optimizer_class=DoNothing, global_optimizer_params={},
+    model, performance = distributed_learning(train_dataset, n_epochs=150, n_workers=8, n_local_steps=8, local_batch_size=64, 
                                  local_optimizer_class=name, local_optimizer_params={"lr": OPT_SGD_LR, "momentum": 0.9, "weight_decay": OPT_SGD_W_DECAY},
                                  scheduler_class=CosineAnnealingLR, scheduler_params={"eta_min": 1e-7},
+                                 global_optimizer_class=SlowMo, global_optimizer_params={"lr": 0.8, "momentum": 0.7},
                                  verbose=True, val_dataset=val_dataset)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
