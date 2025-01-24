@@ -120,7 +120,7 @@ def plot_metric(metric, ax: plt.Axes, **kwargs):
     ax.set_xlabel("Epochs")
     ax.grid(True)
     
-def plot_metrics(df, fname):
+def plot_metrics(df, fname=None):
     fig, (ax1, ax2) = plt.subplots(1, 2)
     for col in df.columns:
         if "loss" in col:
