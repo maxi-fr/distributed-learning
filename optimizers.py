@@ -220,14 +220,24 @@ class WarmupCosineAnnealing(_LRScheduler):
 
 
 class SlowMo(Optimizer):
-    def __init__(self, params, local_lr, lr=0.01, momentum=0.9):
+    def __init__(self, params, local_opt: Optimizer, lr=1.0, momentum=0.9):
         if lr <= 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
         if momentum < 0.0 or momentum >= 1.0:
             raise ValueError(f"Invalid momentum value: {momentum}")
 
-        defaults = dict(local_lr=local_lr, lr=lr, momentum=momentum)
+        defaults = dict(lr=lr, momentum=momentum)
         super().__init__(params, defaults)
+
+        self.local_opt = local_opt
+
+        for group in self.param_groups:
+            for p in group['params']:
+                p: torch.Tensor
+                state: dict[str, torch.Tensor] = self.state[p]
+
+                state['prev_param'] = torch.clone(p).detach()
+
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -235,8 +245,8 @@ class SlowMo(Optimizer):
         if closure is not None:
             loss = closure()
 
-        for group in self.param_groups:
-            local_lr = group["local_lr"]
+        for group, group_l in zip(self.param_groups, self.local_opt.param_groups):
+            local_lr = group_l["lr"]
             lr = group['lr']
             momentum = group['momentum']
 
@@ -246,13 +256,13 @@ class SlowMo(Optimizer):
 
                 if 'momentum_buffer' not in state:
                     state['momentum_buffer'] = torch.zeros_like(p)
-                    state['prev_param'] = p.clone().detach()
+                    state['prev_param'] = torch.zeros_like(p)
 
                 u = state['momentum_buffer']
                 prev_param = state['prev_param']
 
                 # Compute the scaled parameter difference (Δθ_t)
-                param_diff = (p - prev_param)/local_lr
+                param_diff = (prev_param - p)/local_lr
 
                 # Update the momentum buffer: u_t = β * u_{t-1} + Δθ_t
                 u.mul_(momentum).add_(param_diff)
