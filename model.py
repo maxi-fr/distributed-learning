@@ -36,7 +36,7 @@ CONV2_CH = 64
 LIN1_CH = 384
 LIN2_CH = 192
 
-IMG_WH = 28
+IMG_WH = 24
 
 class LeNet5(nn.Module):
     def __init__(self, num_classes=100): 
@@ -75,7 +75,7 @@ class LeNet5(nn.Module):
 
         return x
     
-    def save(self, path: str, other: dict):
+    def save(self, path: str, other: dict={}):
         """
         Saves the model architecture and parameters to the specified path.
 

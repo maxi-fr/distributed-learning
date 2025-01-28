@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, random_split, Dataset
 from torchvision import datasets, transforms
 from model import Instantiator, load_data
 from model import LeNet5, Trainer, average_model_params, evaluate_model, set_model_params
-from optimizers import DoNothing, SlowMo, WarmupPolynomialDecayLR, LARS, LAMB, OptimizerManager
+from optimizers import DoNothing, SlowMo, WarmupCosineAnnealing, LARS, LAMB, OptimizerManager
 
 
 def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, n_local_steps: int, local_batch_size: int, 
@@ -26,12 +26,13 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     if device is None:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    total_steps = n_epochs * len(train_dataset) // (n_workers * local_batch_size)
     if issubclass(scheduler_I.var_class, CosineAnnealingLR):
-        scheduler_I.kwargs["T_max"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
+        scheduler_I.kwargs["T_max"] = total_steps 
     elif issubclass(scheduler_I.var_class, PolynomialLR):
-        scheduler_I.kwargs["total_iters"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
-    elif issubclass(scheduler_I.var_class, WarmupPolynomialDecayLR):
-        scheduler_I.kwargs["total_epochs"] = n_epochs * len(train_dataset) // (n_workers * local_batch_size) 
+        scheduler_I.kwargs["total_iters"] = total_steps 
+    elif issubclass(scheduler_I.var_class, WarmupCosineAnnealing):
+        scheduler_I.kwargs["total_epochs"] = total_steps 
 
     trainers = get_workers(n_workers, local_optimizer_I, scheduler_I, device)
     
@@ -43,7 +44,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     if global_optimizer_I is None:
         global_optimizer_I = Instantiator(DoNothing, {})
 
-    global_optimizer = global_optimizer_I.instantiate(global_model.parameters(), local_lr=local_optimizer_I.kwargs["lr"])
+    global_optimizer = global_optimizer_I.instantiate(global_model.parameters(), local_opt=trainers[0].optimizer)
 
     local_models = [tr.model for tr in trainers]
     
@@ -60,7 +61,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     # dataset doesn't have to be split, since both iid and none overlapping data are given 
     # works exactly as using DistributedSampler for distributed systems 
     data_loader = DataLoader(train_dataset, local_batch_size, shuffle=True, num_workers=6, prefetch_factor=12,
-                            pin_memory=True, drop_last=True)
+                            pin_memory=True, drop_last=True, persistent_workers=True)
     
     
     train_metrics = []
@@ -69,12 +70,12 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
         for epoch in range(n_epochs):
             data_loader_i = iter(data_loader)
 
+            train_metrics_w = []
             for _ in range(steps_per_epoch):
 
                 set_model_params(local_models, global_model)
                 optimizer_manager.step()
 
-                train_metrics_w = []
                 for trainer in trainers:
                     train_metrics_w.append(trainer.train_model(data_loader_i, n_local_steps))
 
@@ -82,7 +83,7 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
 
                 global_optimizer.step()
 
-                train_metrics.append(np.mean(train_metrics_w, 0))
+            train_metrics.append(np.mean(train_metrics_w, 0))
 
             if verbose:
                 print(f"Training progress: [{(epoch+1)}/{n_epochs}], {(time.monotonic()-start_time)/((epoch+1)):.2f}s per epoch")
@@ -122,7 +123,7 @@ def plot_metric(metric, ax: plt.Axes, **kwargs):
     ax.set_xlabel("Epochs")
     ax.grid(True)
     
-def plot_metrics(df, fname):
+def plot_metrics(df, fname=None):
     fig, (ax1, ax2) = plt.subplots(1, 2)
     for col in df.columns:
         if "loss" in col:
@@ -141,8 +142,9 @@ if __name__ == "__main__":
 
     name = torch.optim.SGD
     model, performance = distributed_learning(train_dataset, n_epochs=150, n_workers=1, n_local_steps=100, local_batch_size=64, 
-                                 local_optimizer_I=Instantiator(name, {"lr": OPT_SGD_LR, "weight_decay": OPT_SGD_W_DECAY}),
-                                 scheduler_I=Instantiator(CosineAnnealingLR, {"eta_min": 1e-7}),
+                                 global_optimizer_class=DoNothing, global_optimizer_params={},
+                                 local_optimizer_class=name, local_optimizer_params={"lr": OPT_SGD_LR, "momentum": 0.9, "weight_decay": OPT_SGD_W_DECAY},
+                                 scheduler_I.var_class=CosineAnnealingLR, scheduler_I.kwargs={"eta_min": 1e-7},
                                  verbose=True, val_dataset=val_dataset)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

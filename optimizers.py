@@ -196,7 +196,8 @@ class LAMB(Optimizer):
         return loss
 
 
-class WarmupPolynomialDecayLR(_LRScheduler):
+
+class WarmupCosineAnnealing(_LRScheduler):
     """
     Custom Learning Rate Scheduler with Warmup.
 
@@ -204,36 +205,51 @@ class WarmupPolynomialDecayLR(_LRScheduler):
         optimizer (Optimizer): Wrapped optimizer.
         per_warmup_epochs (int): Percentage of warmup epochs from total epochs.
         total_epochs (int): Total number of training epochs.
-        power (float): Power for polynomial decay.
         last_epoch (int): The index of last epoch. Default: -1.
     """
 
-    def __init__(self, optimizer, per_warmup_epochs, total_epochs, power=2.0, last_epoch=-1):
+    def __init__(self, optimizer, per_warmup_epochs, total_epochs, last_epoch=-1):
         self.warmup_epochs = per_warmup_epochs*total_epochs
         self.total_epochs = total_epochs
-        self.power = power
-        super(WarmupPolynomialDecayLR, self).__init__(optimizer, last_epoch)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_epochs-self.warmup_epochs)
+        super(WarmupCosineAnnealing, self).__init__(optimizer, last_epoch)
 
     def get_lr(self):
         if self.last_epoch < self.warmup_epochs:
-            # Warmup phase: linear increase
             warmup_factor = (self.last_epoch + 1) / self.warmup_epochs
             return [base_lr * warmup_factor for base_lr in self.base_lrs]
-        else:
-            # Polynomial decay phase
-            decay_factor = (1 - (self.last_epoch - self.warmup_epochs) / (self.total_epochs - self.warmup_epochs)) ** self.power
-            return [base_lr * decay_factor for base_lr in self.base_lrs]
+        
+        return self.scheduler.get_lr()
 
 
 class SlowMo(Optimizer):
-    def __init__(self, params, local_lr, lr=0.01, momentum=0.9):
+    def __init__(self, params, local_opt: Optimizer, lr=1.0, momentum=0.9):
         if lr <= 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
         if momentum < 0.0 or momentum >= 1.0:
             raise ValueError(f"Invalid momentum value: {momentum}")
 
-        defaults = dict(local_lr=local_lr, lr=lr, momentum=momentum)
+        defaults = dict(lr=lr, momentum=momentum)
         super().__init__(params, defaults)
+
+        self.local_opt = local_opt
+
+        for group in self.param_groups:
+            for p in group['params']:
+                p: torch.Tensor
+                state: dict[str, torch.Tensor] = self.state[p]
+
+                state['prev_param'] = torch.clone(p).detach()
+
+
+        self.local_opt = local_opt
+
+        for group in self.param_groups:
+            for p in group['params']:
+                p: torch.Tensor
+                state: dict[str, torch.Tensor] = self.state[p]
+
+                state['prev_param'] = torch.clone(p).detach()
 
         
         for group in self.param_groups:
@@ -246,8 +262,8 @@ class SlowMo(Optimizer):
         if closure is not None:
             loss = closure()
 
-        for group in self.param_groups:
-            local_lr = group["local_lr"]
+        for group, group_l in zip(self.param_groups, self.local_opt.param_groups):
+            local_lr = group_l["lr"]
             lr = group['lr']
             momentum = group['momentum']
 
@@ -256,13 +272,14 @@ class SlowMo(Optimizer):
                 state: dict[str, torch.Tensor] = self.state[p]
 
                 if 'momentum_buffer' not in state:
-                    state['momentum_buffer'] = torch.zeros_like(p, device=p.device)
+                    state['momentum_buffer'] = torch.zeros_like(p)
+                    state['prev_param'] = torch.zeros_like(p)
 
                 u = state['momentum_buffer']
                 prev_param = state['prev_param']
 
                 # Compute the scaled parameter difference (Δθ_t)
-                param_diff = (p - prev_param)/local_lr
+                param_diff = (prev_param - p)/local_lr
 
                 # Update the momentum buffer: u_t = β * u_{t-1} + Δθ_t
                 u.mul_(momentum).add_(param_diff)

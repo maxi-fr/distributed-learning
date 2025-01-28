@@ -14,6 +14,7 @@ from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from models.plotting_metrics import plot_metrics
 from model import Instantiator
+from optimizers import WarmupCosineAnnealing
 
 
 def centralized_learning(train_dataset: Dataset, n_epochs: int, batch_size: int,
@@ -33,6 +34,15 @@ def centralized_learning(train_dataset: Dataset, n_epochs: int, batch_size: int,
 
     model = LeNet5()
     model.to(device)
+
+    total_steps = n_epochs * len(train_dataset) // batch_size
+    if issubclass(scheduler_I.var_class, CosineAnnealingLR):
+        scheduler_I.kwargs["T_max"] = total_steps 
+    elif issubclass(scheduler_I.var_class, PolynomialLR):
+        scheduler_I.kwargs["total_iters"] = total_steps 
+    elif issubclass(scheduler_I.var_class, WarmupCosineAnnealing):
+        scheduler_I.kwargs["total_epochs"] = total_steps 
+
 
     trainer = Trainer(model, optimizer_I, device, scheduler_I, verbose=False)
 

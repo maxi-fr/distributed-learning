@@ -33,7 +33,7 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
     Returns:
         None
     """
-    test_mode = config.pop(test_mode, True)
+    test_mode = config.pop("test_mode", True)
     n_epochs = config.pop("n_epochs", 150)
     n_workers = config.pop("n_workers", 1)
     local_batch_size = config.pop("local_batch_size")
@@ -105,12 +105,13 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
                                                local_batch_size, optimizer_I, optimizer_manager_I, 
                                                global_optimizer_I, scheduler_I, device, False, val_or_test_set)
     else:
-        model, train_performance = centralized_learning(train_dataset, n_epochs, n_workers * local_batch_size,
-                                               optimizer_I, scheduler_I, device, False, val_or_test_set)
+        model, train_performance = centralized_learning(train_dataset, n_epochs, n_workers * n_local_steps * local_batch_size, optimizer_I, scheduler_I, device, False, val_or_test_set)
     
-    curr_trial = max([f for f in os.listdir(exp_folder) if os.path.isdir(os.path.join(exp_folder, f))])
-    train_performance.to_csv(os.path.join(experment_folder + curr_trial + "performance.csv"))
-    model.save(os.path.join(experment_folder + curr_trial + "model.pkl"))
+    exp_sub_folder = max([f for f in os.listdir(exp_folder) if os.path.isdir(os.path.join(exp_folder, f))])
+    exp_folder = os.path.join(exp_folder, exp_sub_folder)
+    curr_trial_folder = max([f for f in os.listdir(exp_folder) if os.path.isdir(os.path.join(exp_folder, f))])
+    train_performance.to_csv(os.path.join(exp_folder, curr_trial_folder, "performance.csv"))
+    model.save(os.path.join(exp_folder, curr_trial_folder, "model.pkl"))
 
     if test_mode:
         test_loss, test_acc = evaluate_model(model, test_dataset, device, verbose=False)
@@ -127,27 +128,28 @@ if __name__ == "__main__":
     if len(sys.argv) == 2:
         experiment_name = sys.argv[1]
     else:
-        experiment_name = "mini_batch_adamw"
+        raise Exception("set experiment name through CLI")
 
-    print(experiment_name)
+    print("Starting experiment: ", experiment_name)
     search_space: dict = getattr(experiments_config, experiment_name)
 
     experment_folder = os.path.join(os.path.abspath("Results2"), experiment_name)
 
     train_dataset, val_dataset = load_data()
+    test_dataset = load_data(test_data=True)
 
     ray.init()
-    train_data_obj_ref = ray.put((train_dataset, val_dataset))
+    train_data_obj_ref = ray.put((train_dataset, val_dataset, test_dataset))
 
-    reporter = CLIReporter(metric_columns=["val_loss", "val_acc"])
+    reporter = CLIReporter(metric_columns=["test_acc" if search_space.get("test_mode", True) else "val_acc"])
 
     print("Cuda available:", torch.cuda.is_available())
 
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref, exp_folder=experment_folder),
         config=search_space,
-        num_samples=-1,
-        time_budget_s= 10 * 60 * 60,
+        num_samples=1,
+        # time_budget_s= 10 * 60 * 60,
         progress_reporter=reporter,
         storage_path=experment_folder,
         max_concurrent_trials=1,
@@ -155,8 +157,8 @@ if __name__ == "__main__":
         trial_dirname_creator=custom_trial_name,
         metric="test_acc" if search_space.get("test_mode", True) else "val_acc",
         mode="max"
-    )
-    analysis.dataframe().to_pickle(os.path.join(experment_folder, f"{experiment_name}.pkl"))
+    ) 
+    #analysis.dataframe().to_pickle(os.path.join(experment_folder, f"{experiment_name}.pkl"))
 
     print("Best hyperparameters found: ", analysis.best_config)
     print("Best validation accuracy: ", analysis.best_result)
