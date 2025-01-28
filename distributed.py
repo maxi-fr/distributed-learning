@@ -141,11 +141,13 @@ if __name__ == "__main__":
     train_dataset, val_dataset = load_data()
 
     name = torch.optim.SGD
+
+    local_optimizer_I = Instantiator(name, {"lr": OPT_SGD_LR, "momentum": 0.9, "weight_decay": OPT_SGD_W_DECAY})
+    schedular_I = Instantiator(CosineAnnealingLR, {"eta_min": 1e-7})
+
     model, performance = distributed_learning(train_dataset, n_epochs=150, n_workers=1, n_local_steps=100, local_batch_size=64, 
-                                 global_optimizer_class=DoNothing, global_optimizer_params={},
-                                 local_optimizer_class=name, local_optimizer_params={"lr": OPT_SGD_LR, "momentum": 0.9, "weight_decay": OPT_SGD_W_DECAY},
-                                 scheduler_I.var_class=CosineAnnealingLR, scheduler_I.kwargs={"eta_min": 1e-7},
-                                 verbose=True, val_dataset=val_dataset)
+                                              local_optimizer_I=local_optimizer_I, scheduler_I=schedular_I, 
+                                              verbose=True, val_dataset=val_dataset)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     tran = transforms.Compose((transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))))

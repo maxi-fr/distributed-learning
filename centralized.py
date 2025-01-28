@@ -82,7 +82,7 @@ if __name__ == "__main__":
     opt_class = SGD
 
     optimizer_I = Instantiator(opt_class, {"lr": OPT_SGD_LR, "momentum": 0.9, "weight_decay": OPT_SGD_W_DECAY})
-    scheduler_I = Instantiator(CosineAnnealingLR, {"T_max": n_epochs*len(train_dataset)//b_sizie})
+    scheduler_I = Instantiator(CosineAnnealingLR)
 
     model, performance = centralized_learning(train_dataset, n_epochs, b_sizie, optimizer_I,
                                               scheduler_I, device, True, val_dataset)
