@@ -21,8 +21,6 @@ from optimizers import DoNothing
 from optimizers import AverageOptimizers, DoNothing
 
 
-# TODO: test hyperparameter search for this branch with all the new stuff, then merge
-
 def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref, exp_folder):
     """
     Wrapper for distributed learning to enable Ray Tune hyperparameter tuning.
@@ -38,15 +36,15 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
     n_workers = config.pop("n_workers", 1)
     local_batch_size = config.pop("local_batch_size")
     n_local_steps = config.pop("n_local_steps", 1)
+    
 
-    is_distributed =not ( n_workers == 1  or (n_local_steps == 1 and issubclass(optimizer_manager, AverageOptimizers)))
     # only if optimizer buffers get averaged,
     # problem for when merging with local_ada_scale_implementaition branch TODO
     # is_distributed = n_workers > 1 or (n_local_steps > 1 and issubclass(optimizer_manager, AverageOptimizers))
 
     global_optimizer_class = config.pop("global_optimizer_class", DoNothing)
     local_optimizer_class = config.pop("local_optimizer_class")
-    local_optimizer_manager_class = config.pop("local_optimizer_manager_class", AverageOptimizers)
+    local_optimizer_manager_class = config.pop("optimizer_manager_class", AverageOptimizers)
     scheduler_class = config.pop("scheduler_class")
 
     local_optimizer_params = {}
@@ -91,16 +89,17 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
 
     optimizer_I = Instantiator(local_optimizer_class, local_optimizer_params)
     scheduler_I = Instantiator(scheduler_class, scheduler_params)
+    optimizer_manager_I = Instantiator(local_optimizer_manager_class, optimizer_manager_params)
+    global_optimizer_I = Instantiator(global_optimizer_class, global_optimizer_params)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     train_dataset, val_dataset, test_dataset = ray.get(train_data_obj_ref)
     val_or_test_set = test_dataset if test_mode else val_dataset 
 
-    if is_distributed:
-        optimizer_manager_I = Instantiator(local_optimizer_manager_class, optimizer_manager_params)
-        global_optimizer_I = Instantiator(global_optimizer_class, global_optimizer_params)
+    is_distributed = not ( n_workers == 1  or (n_local_steps == 1 and issubclass(optimizer_manager_I.var_class, AverageOptimizers)))
 
+    if is_distributed:
         model, train_performance = distributed_learning(train_dataset, n_epochs, n_workers, n_local_steps, 
                                                local_batch_size, optimizer_I, optimizer_manager_I, 
                                                global_optimizer_I, scheduler_I, device, False, val_or_test_set)
@@ -148,7 +147,7 @@ if __name__ == "__main__":
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref, exp_folder=experment_folder),
         config=search_space,
-        num_samples=20,
+        num_samples=2,
         # time_budget_s= 10 * 60 * 60,
         progress_reporter=reporter,
         storage_path=experment_folder,
