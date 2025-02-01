@@ -335,6 +335,7 @@ class LocalAdaScale_Optimizer(Optimizer):
         for group in self.param_groups:
             lr = group['lr']
             momentum = group['momentum']
+            weight_decay = group['weight_decay']
 
             for param in group['params']:
                 param: torch.Tensor
@@ -342,6 +343,9 @@ class LocalAdaScale_Optimizer(Optimizer):
                     continue
 
                 grad = param.grad
+
+                if weight_decay > 0:
+                    grad = grad.add(param, alpha=weight_decay)
 
                 state = self.state[param]
                 if momentum > 0:
