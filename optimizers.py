@@ -445,7 +445,7 @@ class LocalAdaScale_Manager(OptimizerManager):
     def step(self):
         opts = self.optimizers
 
-        if not hasattr(opt[0], "cache_grad"):
+        if not hasattr(opts[0], "cache_grad"):
             p = 1. #len(opts)
         else:
             gradients = [opt.cache_grad for opt in opts]
@@ -474,7 +474,6 @@ class LocalAdaScale_Manager(OptimizerManager):
                 state.copy_(mean)
 
     def update_epoch(self):
-        print(torch.mean(torch.as_tensor(self.gain_ratios)))
         n_workers = len(self.optimizers)
 
         self.epoch_budget = self.step_invariant_epochs * (n_workers / torch.mean(torch.as_tensor(self.gain_ratios)).item())

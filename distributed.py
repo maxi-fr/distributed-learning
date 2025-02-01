@@ -36,7 +36,8 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
 
     trainers = get_workers(n_workers, local_optimizer_I, scheduler_I, device)
     
-    optimizer_manager = optimizer_manager_I.instantiate([t.optimizer for t in trainers]) 
+
+    optimizer_manager = optimizer_manager_I.instantiate([t.optimizer for t in trainers], step_invariant_epochs=n_epochs, n_local_steps=n_local_steps) 
 
     global_model = LeNet5()
     global_model.to(device)
@@ -66,8 +67,11 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
     
     train_metrics = []
     val_metrics = []
+
+    epoch = 0
     try:
-        for epoch in range(n_epochs):
+        while optimizer_manager.epoch_budget - epoch > 0:
+
             data_loader_i = iter(data_loader)
 
             train_metrics_w = []
@@ -86,11 +90,14 @@ def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, 
             train_metrics.append(np.mean(train_metrics_w, 0))
 
             if verbose:
-                print(f"Training progress: [{(epoch+1)}/{n_epochs}], {(time.monotonic()-start_time)/((epoch+1)):.2f}s per epoch")
+                print(f"Training progress: [{(epoch+1)}/{optimizer_manager.epoch_budget}], {(time.monotonic()-start_time)/((epoch+1)):.2f}s per epoch")
                 print(f"Current training loss/acc: {train_metrics[-1][0]:.3f}/{train_metrics[-1][1]*100:.2f}%")
 
             if val_dataset is not None:
                 val_metrics.append(evaluate_model(global_model, val_dataset, device, verbose=True))
+
+            optimizer_manager.update_epoch()
+            epoch += 1
                 
     except ValueError as e:
         print(e)
