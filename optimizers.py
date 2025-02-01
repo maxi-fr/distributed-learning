@@ -1,6 +1,7 @@
 
 from abc import ABC, abstractmethod
 import math
+import numpy as np
 from torch.optim.lr_scheduler import _LRScheduler
 import torch
 from torch.optim.optimizer import Optimizer
@@ -278,13 +279,10 @@ class SlowMo(Optimizer):
                 u = state['momentum_buffer']
                 prev_param = state['prev_param']
 
-                # Compute the scaled parameter difference (Δθ_t)
                 param_diff = (prev_param - p)/local_lr
 
-                # Update the momentum buffer: u_t = β * u_{t-1} + Δθ_t
                 u.mul_(momentum).add_(param_diff)
 
-                # Update parameters: θ_t+1 <- θ_t - lr * local_lr * u_t
                 prev_param.add_(u, alpha=-local_lr*lr)
                 p.copy_(prev_param)
 
@@ -301,17 +299,20 @@ class DoNothing(Optimizer):
 
 
 class LocalAdaScale_Optimizer(Optimizer):
-    def __init__(self, params, lr, momentum=0.0):
+    def __init__(self, params, lr, momentum=0.0, weight_decay=0.0):
         if lr <= 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
         if momentum < 0.0:
             raise ValueError(f"Invalid momentum value: {momentum}")
+        if weight_decay < 0.0:
+            raise ValueError(f"Invalid momentum value: {weight_decay}")
 
-        defaults = dict(lr=lr, momentum=momentum)
+        defaults = dict(lr=lr, momentum=momentum, weight_decay=weight_decay)
         super().__init__(params, defaults)
         self.state: dict[torch.Tensor, dict[str, torch.Tensor]]
 
         self.just_synchronized = True
+        self.gain_ratio = 1.
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -328,9 +329,8 @@ class LocalAdaScale_Optimizer(Optimizer):
 
         
         if self.just_synchronized:
-            self.cache_grad_norm = total_gradient_norm(self)
+            self.cache_grad = stacked_grad(self)
         self.just_synchronized = False
-        self.gain_ratio = 1.
             
         for group in self.param_groups:
             lr = group['lr']
@@ -344,7 +344,7 @@ class LocalAdaScale_Optimizer(Optimizer):
 
                 grad = param.grad
 
-                if weight_decay > 0:
+                if weight_decay > 0.0:
                     grad = grad.add(param, alpha=weight_decay)
 
                 state = self.state[param]
@@ -361,7 +361,7 @@ class LocalAdaScale_Optimizer(Optimizer):
                 else:
                     param_update = -lr * grad
 
-                param.mul_(param_update, alpha=self.gain_ratio)
+                param.add_(param_update, alpha=self.gain_ratio)
 
         return loss
 
@@ -369,53 +369,52 @@ def gain_ratio(G: torch.Tensor, sigma_sq: torch.Tensor, H, K):
     s_over_k = sigma_sq/K
     
     numerator = 2*(G + sigma_sq)
-    denominator = G + s_over_k + torch.sqrt((G + s_over_k)**2 + (3 * (H-1)) * G * sigma_sq)
+    denominator = G + s_over_k + torch.sqrt((G + s_over_k)**2 + torch.abs((3 * (H-1)) * G * sigma_sq))
 
     return numerator / denominator
 
-def grad_stats(grad_norms: list[float]):
-    K = len(grad_norms)
+def grad_stats(gradients: list[float]):
+    K = len(gradients)
 
-    grad_norms = torch.as_tensor(grad_norms)
+    gradients = torch.vstack(gradients) # shape (K, x)
 
-    sq_av_g_norm = torch.mean(grad_norms)**2
-    sq_g_norms = grad_norms ** 2
+    sq_av_g_norm = torch.norm(torch.mean(gradients, dim=0))**2
 
-    sigma_sq = 1/(K-1) * (sq_g_norms.sum() - sq_av_g_norm)
+    sq_g_norms = torch.norm(gradients, dim=1) ** 2
+
+    sigma_sq = 1/(K-1) * (sq_g_norms.sum() - K * sq_av_g_norm)
 
     G = sq_av_g_norm - sigma_sq/K
 
+    
     return G, sigma_sq
 
-
-def total_gradient_norm(optimizer: Optimizer):
-    """
-    Computes the total gradient L2-norm for all parameters in a model.
-
-    Args:
-        model (torch.nn.Module): The model containing parameters.
-
-    Returns:
-        float: The total gradient norm.
-    """
-    total_norm = 0.0
+@torch.no_grad()
+def stacked_grad(optimizer: Optimizer):
+    stacked = []
     for group in optimizer.param_groups:
         for param in group['params']:
             if param.grad is not None:
-                param_norm = (param.grad**2).sum()
-                total_norm += param_norm**2
+                stacked.append(param.grad.flatten())
 
-    total_norm = math.sqrt(total_norm)
-    return total_norm
-
+    return torch.hstack(stacked)
+    
 
 
 class OptimizerManager:
-    def __init__(self, optimizers: list[Optimizer], **manager_params):
+    def __init__(self, optimizers: list[Optimizer], step_invariant_epochs, **manager_params):
         self.optimizers = optimizers
+        self.step_invariant_epochs = step_invariant_epochs
+        self.epoch_budget = step_invariant_epochs
 
-    def step():
+        self.epoch = 0
+
+    def step(self):
         pass
+
+    def update_epoch(self):
+        self.epoch += 1 
+        
 
 class AverageOptimizers(OptimizerManager):
 
@@ -434,24 +433,50 @@ class AverageOptimizers(OptimizerManager):
                 state.copy_(mean)
 
 class LocalAdaScale_Manager(OptimizerManager):
-    def __init__(self, optimizers: list[LocalAdaScale_Optimizer], n_local_steps):
+    def __init__(self, optimizers: list[LocalAdaScale_Optimizer], step_invariant_epochs, n_local_steps):
         self.optimizers = optimizers
         self.H = n_local_steps
+        self.step_invariant_epochs = step_invariant_epochs
+        self.epoch_budget = step_invariant_epochs
+
+        self.gain_ratios = []
 
     @torch.no_grad()
     def step(self):
         opts = self.optimizers
 
-        grad_norms = [opt.cache_grad_norm for opt in opts]
+        if not hasattr(opts[0], "cache_grad"):
+            p = 1. #len(opts)
+        else:
+            gradients = [opt.cache_grad for opt in opts]
+            G, sigma_sq = grad_stats(gradients)
+            p = gain_ratio(G, sigma_sq, self.H, len(opts))
 
-        G, sigma_sq = grad_stats(grad_norms)
+            # exp moving average
+            p_minus_1 = self.gain_ratios[-1]
+            p = 0.8 * p_minus_1 + 0.2 * p
 
-        p = gain_ratio(G, sigma_sq, self.H, len(opts))
+
+        self.gain_ratios.append(p)
 
         for opt in opts:
             opt.just_synchronized = True
             opt.gain_ratio = p
 
+        # average opt buffers
+        states = [flatten_dict(opt.state) for opt in self.optimizers]
+
+        x: list[torch.Tensor]
+        for x in zip(*states):
+            mean = torch.mean(torch.stack(x), dim=0)
+            
+            for state in x:
+                state.copy_(mean)
+
+    def update_epoch(self):
+        n_workers = len(self.optimizers)
+
+        self.epoch_budget = self.step_invariant_epochs * (n_workers / torch.mean(torch.as_tensor(self.gain_ratios)).item())
 
 
 def flatten_dict(d: dict) -> list:
