@@ -180,7 +180,7 @@ class LAMB(Optimizer):
                 else:
                     trust_ratio = weight_norm / adam_norm
 
-                # FIXME: is it necessary to save the folling stuff in the state??
+                # FIXME: is it necessary to save the following stuff in the state??
                 state['weight_norm'] = weight_norm
                 state['adam_norm'] = adam_norm
                 state['trust_ratio'] = trust_ratio
