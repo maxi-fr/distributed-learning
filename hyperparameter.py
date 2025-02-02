@@ -14,7 +14,7 @@ from ray.tune import CLIReporter
 from centralized import centralized_learning
 from distributed import distributed_learning
 from model import Instantiator, evaluate_model, load_data
-import Results2.experiments_config as experiments_config
+import experiments_config
 import pickle
 
 from optimizers import DoNothing
@@ -118,7 +118,8 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
 
 
 def custom_trial_name(trial):
-    return f"trial_{trial.trial_id.split("_")[-1]}"
+    return f"trial_{trial.trial_id.split('_')[-1]}"
+
 
 if __name__ == "__main__":
     if len(sys.argv) == 2:
