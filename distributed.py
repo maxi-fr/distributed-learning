@@ -152,14 +152,15 @@ if __name__ == "__main__":
     local_optimizer_I = Instantiator(name, {"lr": OPT_SGD_LR, "momentum": 0.9, "weight_decay": OPT_SGD_W_DECAY})
     schedular_I = Instantiator(CosineAnnealingLR, {"eta_min": 1e-7})
 
-    model, performance = distributed_learning(train_dataset, n_epochs=150, n_workers=1, n_local_steps=100, local_batch_size=64, 
+    model, performance = distributed_learning(train_dataset, n_epochs=150, n_workers=8, n_local_steps=16, local_batch_size=64, 
                                               local_optimizer_I=local_optimizer_I, scheduler_I=schedular_I, 
                                               verbose=True, val_dataset=val_dataset)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    test_dataset = load_data(test_data=True)
 
     test_acc = evaluate_model(model, test_dataset, torch.nn.CrossEntropyLoss(), device)
-    model.save(os.path.join("models", name.__name__ + ".lenet"), {"test_acc": test_acc})
+    model.save(os.path.join("models3", name.__name__ + ".lenet"), {"test_acc": test_acc})
 
-    performance.to_csv(os.path.join("models", name.__name__ + "performance.csv"))
-    plot_metrics(performance, os.path.join("models", name.__name__ + "performance.png"))
+    performance.to_csv(os.path.join("models3", name.__name__ + "performance.csv"))
+    plot_metrics(performance, os.path.join("models3", name.__name__ + "performance.png"))
