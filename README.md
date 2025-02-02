@@ -7,14 +7,9 @@ This repository provides a framework for the project-code for DAAI 2024/25 distr
 - **Experimentsg**: Use multiple workers to train the model in parallel using prefedfined configs. The hyperparameters are tuned/ found by ray
 - **Training**: Trains a model based on parameters given over the shell
 
-Examples usage for the Shell: your-path>python main.py --mode centralized --n_epochs 150 --use_cuda False --learning_rate 0.001 --n_workers 4 --n_local_steps 10 --local_batch_size 16 --local_optimizer_class 'torch.optim.SGD' --local_lr 0.01 --local_weight_decay 0.0001 --local_momentum 0.9  --scheduler_class 'WarmupCosineAnnealing' --per_warmup_epochs 5 --global_optimizer_class 'DoNothing' --global_optimizer_lr 0.001 --global_optimizer_momentum 0.9 --verbose True
+Examples usage for the Shell: your-path>python main.py --mode centralized --n_epochs 150 --use_cuda False --learning_rate 0.001 --n_workers 4 --n_local_steps 10 --local_batch_size 16 --local_optimizer_class 'torch.optim.SGD' --local_lr 0.01 --local_weight_decay 0.0001 --local_momentum 0.9  --scheduler_class 'WarmupCosineAnnealing' --per_warmup_epochs 0.55 --global_optimizer_class 'DoNothing' --global_optimizer_lr 0.001 --global_optimizer_momentum 0.9 --verbose True
 
 yourpath python main.py --mode experiment --dict_name mini_batch_sgd  --num_samples 20
 ## Requirements
-
-- Python 3.x
-- Ray
-- PyTorch
-- TorchVision
-- CUDA (for GPU acceleration)
+The requirements are listed in requirements.txt and cann be installed using pip install -r requirements.txt
 
