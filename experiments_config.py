@@ -175,6 +175,7 @@ lamb_bat_size = {
 
 
 local_sgd = {
+    "test_mode": True,
     "n_workers": tune.grid_search([1, 2, 4, 8]),
     "n_epochs": 150,
     "n_local_steps": tune.grid_search([1, 2, 4, 8]),
@@ -192,6 +193,7 @@ local_sgd = {
     }
 
 local_adamw = {
+    "test_mode": True,
     "n_workers": tune.grid_search([1, 2, 4, 8]),
     "n_epochs": 150,
     "n_local_steps": tune.grid_search([1, 2, 4, 8]),
