@@ -157,8 +157,6 @@ if __name__ == "__main__":
                                               verbose=True, val_dataset=val_dataset)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    tran = transforms.Compose((transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))))
-    test_dataset = datasets.CIFAR100(root="data", train=False, download=True, transform=tran)
 
     test_acc = evaluate_model(model, test_dataset, torch.nn.CrossEntropyLoss(), device)
     model.save(os.path.join("models", name.__name__ + ".lenet"), {"test_acc": test_acc})
