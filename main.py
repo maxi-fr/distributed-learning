@@ -169,7 +169,7 @@ def parse_args_with_dict():
     parser.add_argument('--local_weight_decay', type=float, help='local weight decay', default=None)
     parser.add_argument('--local_momentum', type=float, help='local momentum', default=None)
     parser.add_argument('--scheduler_class', type=str, help='Scheduler class', default=None)
-    parser.add_argument('--per_warmup_epochs', type=float, help='Scheduler warumup', default=0.0)
+    parser.add_argument('--per_warmup_epochs', type=float, help='Scheduler warumup', default=None)
     parser.add_argument('--global_optimizer_class', type=str, help='Global optimizer class', default=None)
     parser.add_argument('--global_optimizer_lr', type=float, help='Global optimizer lr', default=0.0)
     parser.add_argument('--global_optimizer_momentum', type=float, help='Global optimizer momentum', default=0.0)
