@@ -24,12 +24,14 @@ from experiments_config import (
     OPT_LAMB_LR, 
     OPT_SLOW_MOMENTUM
 )
+import experiments_config
 
-from model import load_data
+from model import load_data, evaluate_model
 from hyperparameter import tune_distributed_learning, custom_trial_name
 from optimizers import LAMB, LARS, DoNothing, SlowMo, WarmupCosineAnnealing
 from centralized import centralized_learning
 from distributed import distributed_learning
+from models.plotting_metrics import plot_metrics
 
 
 def run_hyperparam(args):
@@ -37,7 +39,7 @@ def run_hyperparam(args):
     print("Starting experiment: ", experiment_name)
 
     search_space: dict = getattr(experiments_config, experiment_name)
-
+    num_samples=args.num_samples
     experment_folder = os.path.join(os.path.abspath("Results"), experiment_name)
 
     train_dataset, val_dataset = load_data()
@@ -52,7 +54,7 @@ def run_hyperparam(args):
     analysis = tune.run(
         partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref, exp_folder=experment_folder),
         config=search_space,
-        num_samples=20,
+        num_samples=num_samples,
         # time_budget_s= 10 * 60 * 60,
         progress_reporter=reporter,
         storage_path=experment_folder,
@@ -62,7 +64,8 @@ def run_hyperparam(args):
         metric="test_acc" if search_space.get("test_mode", True) else "val_acc",
         mode="max"
     )
-    return analysis
+    print("Best hyperparameters found: ", analysis.best_config)
+    print("Best validation accuracy: ", analysis.best_result)
     
 def run_centralized(args):
     print("Running centralized mode with:", args)
@@ -84,7 +87,16 @@ def run_centralized(args):
     model, performance = centralized_learning(train_dataset, args.n_epochs, args.local_batch_size, optimizer_class, 
                                              local_optimizer_params, scheduler_class, scheduler_params, 
                                               device, True, val_dataset)
-    return model, performance
+    print("Training completed.")
+    test_dataset = load_data(test_data=True)
+
+    test_acc = evaluate_model(model, test_dataset, device)
+
+    add_on = "_crop28_no_DO_w_CJ_"
+    model.save(os.path.join("models2", optimizer_class.__name__ + add_on + ".lenet"), {"test_acc": test_acc})
+
+    performance.to_csv(os.path.join("models2", optimizer_class.__name__ + add_on + "performance.csv"))
+    plot_metrics(performance, os.path.join("models2", optimizer_class.__name__ + add_on + "performance.png"))
 
 def run_train(args):
     print("Running parallel training with:", args)
@@ -120,11 +132,16 @@ def run_train(args):
         global_optimizer_params=global_optimizer_params if global_optimizer_params else {},
         verbose=args.verbose,
         val_dataset=val_dataset)
-    print("Training completed.")
-    return model, performance
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    test_dataset = load_data(test_data=True)
 
-    
+    name = eval(args.local_optimizer_class)
+   
+    test_acc = evaluate_model(model, test_dataset, device)
+    model.save(os.path.join("models", name.__name__ + ".lenet"), {"test_acc": test_acc})
 
+    performance.to_csv(os.path.join("models", name.__name__ + "performance.csv"))
+    plot_metrics(performance, os.path.join("models", name.__name__ + "performance.png"))
 
 def parse_args_with_dict():
     """Initial step: Check if a dict is provided or manually input args"""
@@ -149,11 +166,12 @@ def parse_args_with_dict():
     parser.add_argument('--local_weight_decay', type=float, help='local weight decay', default=None)
     parser.add_argument('--local_momentum', type=float, help='local momentum', default=None)
     parser.add_argument('--scheduler_class', type=str, help='Scheduler class', default=None)
-    parser.add_argument('--per_warmup_epochs', type=float, help='Scheduler warumup', default='{}')
+    parser.add_argument('--per_warmup_epochs', type=float, help='Scheduler warumup', default=0.0)
     parser.add_argument('--global_optimizer_class', type=str, help='Global optimizer class', default=None)
-    parser.add_argument('--global_optimizer_lr', type=float, help='Global optimizer lr', default='{}')
-    parser.add_argument('--global_optimizer_momentum', type=float, help='Global optimizer momentum', default='{}')
+    parser.add_argument('--global_optimizer_lr', type=float, help='Global optimizer lr', default=0.0)
+    parser.add_argument('--global_optimizer_momentum', type=float, help='Global optimizer momentum', default=0.0)
     parser.add_argument('--verbose', type=bool, help='Verbose', default=True)
+    parser.add_argument('--num_samples', type=int, help='Number of Samples', default=20)
     
     args = parser.parse_args()
 
