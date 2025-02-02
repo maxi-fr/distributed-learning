@@ -135,10 +135,10 @@ def plot_metrics(df, fname=None):
     for col in df.columns:
         if "loss" in col:
             plot_metric(df[col], ax1, label=col)
-            ax1.set_ylabel(col)
+            ax1.set_ylabel(col.split("_")[1].capitalize())
         else:
             plot_metric(df[col], ax2, label=col)
-            ax2.set_ylabel(col)
+            ax2.set_ylabel(col.split("_")[1].capitalize())
     if fname is not None:
         fig.savefig(fname)
     return fig, (ax1, ax2)

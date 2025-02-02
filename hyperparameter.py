@@ -61,9 +61,6 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
         elif lr_scaling == "sqrt":
             scale = math.sqrt(n_workers)
 
-            # n_epochs *= n_workers / scale # make n_epoch "scale invariant"
-            # FIXME: mit oder ohne scale inveriant epochs??
-
         else:
             raise ValueError("Scaling rule should be one of 'linear' and 'sqrt'")
 
