@@ -134,7 +134,7 @@ def plot_metrics(df, fname=None):
     return fig, (ax1, ax2)
 
 if __name__ == "__main__":
-    from Results2.experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY, OPT_ADAMW_LR, OPT_ADAMW_W_DECAY
+    from experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY, OPT_ADAMW_LR, OPT_ADAMW_W_DECAY
     train_dataset, val_dataset = load_data()
 
     name = torch.optim.SGD
