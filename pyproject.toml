@@ -1,6 +1,6 @@
 [project]
 name = "distributed_learning"
-version = "0.1.0"
+version = "1.0.0"
 description = "Experiments in centralized and distributed deep learning."
 authors = [
     { name = "Max Frankenberg", email = "frankenbergmax57@gmail.com" },
@@ -45,6 +45,7 @@ module-name = ["distributed_learning"]
 [tool.ruff]
 line-length = 120
 target-version = "py313"
+extend-exclude = ["notebooks/**"]
 
 [tool.ruff.lint]
 select = ["ALL"]
@@ -91,7 +92,7 @@ markers = ["slow: marks tests as slow (deselected by default, opt-in with --runs
 python = ".venv"
 
 [tool.ty.src]
-exclude = ["examples/**"]
+exclude = ["notebooks/**"]
 
 [tool.ty.rules]
 invalid-assignment = "error"

@@ -8,8 +8,6 @@ Experiments in centralized and distributed deep learning for the DAAI 2024/25 pr
 - `docs/references/`: papers and project materials.
 - `docs/figures/`: curated result figures.
 - `notebooks/`: exploratory analysis notebooks.
-- `artifacts/results/archive/` and `artifacts/models/archive/`: historical experiment results and model snapshots.
-- `artifacts/results/runs/` and `artifacts/models/runs/`: new run outputs (ignored by Git).
 
 ## Setup
 
@@ -35,10 +33,10 @@ Run a hyperparameter experiment with a predefined configuration:
 uv run python -m distributed_learning.main --mode experiment --dict_name mini_batch_sgd --num_samples 20
 ```
 
-The Windows helper runs the `local_ada_scale` tuning configuration:
+Run the `local_ada_scale` tuning configuration with:
 
 ```powershell
-run_experiments.bat
+uv run python -m distributed_learning.hyperparameter local_ada_scale
 ```
 
 ## Development

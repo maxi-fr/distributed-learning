@@ -1,46 +1,54 @@
-from functools import partial
+import logging
 import math
-import os
 import sys
-import time
+from functools import partial
+from pathlib import Path
+from typing import Any
+
 import ray
 import torch
-from torchvision import datasets, transforms
-from torch.utils.data import random_split
 from ray import tune
 from ray.tune import CLIReporter
-# from ray.tune.search.variant_generator import BasicVariantGenerator
+from ray.tune.experiment.trial import Trial
 
+# from ray.tune.search.variant_generator import BasicVariantGenerator  # noqa: ERA001
+from . import experiments_config
 from .centralized import centralized_learning
 from .distributed import distributed_learning
 from .model import Instantiator, evaluate_model, load_data
-from . import experiments_config
-import pickle
-
-from .optimizers import DoNothing
 from .optimizers import AverageOptimizers, DoNothing
 
+EXPERIMENT_ARG_COUNT = 2
+logger = logging.getLogger(__name__)
 
-def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref, exp_folder):
+
+def tune_distributed_learning(  # noqa: C901, PLR0912, PLR0915
+    config: dict[str, Any],
+    train_data_obj_ref: ray.ObjectRef,
+    exp_folder: str | Path,
+) -> dict[str, float]:
     """
-    Wrapper for distributed learning to enable Ray Tune hyperparameter tuning.
+    Run distributed learning for one Ray Tune configuration.
 
-    Args:
-        config (dict): Configuration containing hyperparameters to test.
+    Parameters
+    ----------
+    config : dict[str, Any]
+        Mutable Ray Tune configuration containing the hyperparameters to test.
+    train_data_obj_ref : ray.ObjectRef
+        Reference to the training, validation, and test datasets.
+    exp_folder : str or pathlib.Path
+        Ray Tune experiment directory.
 
-    Returns:
-        None
+    Returns
+    -------
+    dict[str, float]
+        Loss and accuracy metrics for the selected evaluation dataset.
     """
     test_mode = config.pop("test_mode", True)
     n_epochs = config.pop("n_epochs", 150)
     n_workers = config.pop("n_workers", 1)
     local_batch_size = config.pop("local_batch_size")
     n_local_steps = config.pop("n_local_steps", 1)
-    
-
-    # only if optimizer buffers get averaged,
-    # problem for when merging with local_ada_scale_implementaition branch TODO
-    # is_distributed = n_workers > 1 or (n_local_steps > 1 and issubclass(optimizer_manager, AverageOptimizers))
 
     global_optimizer_class = config.pop("global_optimizer_class", DoNothing)
     local_optimizer_class = config.pop("local_optimizer_class")
@@ -56,16 +64,20 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
     if base_lr is not None:
         lr_scaling = config.pop("local_opt.lr_scaling")
 
+        # only if optimizer buffers get averaged,
+        # problem for when merging with local_ada_scale_implementaition branch TODO
+        # is_distributed = n_workers > 1 or (n_local_steps > 1 and issubclass(optimizer_manager, AverageOptimizers))  # noqa: ERA001
+
         if lr_scaling == "linear":
             scale = n_workers
         elif lr_scaling == "sqrt":
             scale = math.sqrt(n_workers)
 
         else:
-            raise ValueError("Scaling rule should be one of 'linear' and 'sqrt'")
+            msg = "Scaling rule should be one of 'linear' and 'sqrt'"
+            raise ValueError(msg)
 
         config["local_opt.lr"] = base_lr * scale
-
 
     for key, val in config.items():
         (scope, param) = key.split(".")
@@ -81,56 +93,87 @@ def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref
         elif scope == "scheduler":
             scheduler_params[param] = val
         else:
-            raise KeyError("Wrong parameter in 'config' dict: ", scope, param)
-        
+            msg = "Wrong parameter in 'config' dict: "
+            raise KeyError(msg, scope, param)
 
     optimizer_I = Instantiator(local_optimizer_class, local_optimizer_params)
     scheduler_I = Instantiator(scheduler_class, scheduler_params)
     optimizer_manager_I = Instantiator(local_optimizer_manager_class, optimizer_manager_params)
     global_optimizer_I = Instantiator(global_optimizer_class, global_optimizer_params)
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     train_dataset, val_dataset, test_dataset = ray.get(train_data_obj_ref)
-    val_or_test_set = test_dataset if test_mode else val_dataset 
+    val_or_test_set = test_dataset if test_mode else val_dataset
 
-    is_distributed = not ( n_workers == 1  or (n_local_steps == 1 and issubclass(optimizer_manager_I.var_class, AverageOptimizers)))
+    is_distributed = not (
+        n_workers == 1 or (n_local_steps == 1 and issubclass(optimizer_manager_I.var_class, AverageOptimizers))
+    )
 
     if is_distributed:
-        model, train_performance = distributed_learning(train_dataset, n_epochs, n_workers, n_local_steps, 
-                                               local_batch_size, optimizer_I, optimizer_manager_I, 
-                                               global_optimizer_I, scheduler_I, device, False, val_or_test_set)
+        model, train_performance = distributed_learning(
+            train_dataset,
+            n_epochs,
+            n_workers,
+            n_local_steps,
+            local_batch_size,
+            optimizer_I,
+            optimizer_manager_I=optimizer_manager_I,
+            global_optimizer_I=global_optimizer_I,
+            scheduler_I=scheduler_I,
+            device=device,
+            verbose=False,
+            val_dataset=val_or_test_set,
+        )
     else:
-        model, train_performance = centralized_learning(train_dataset, n_epochs, n_workers * n_local_steps * local_batch_size, optimizer_I, scheduler_I, device, False, val_or_test_set)
-    
-    exp_sub_folder = max([f for f in os.listdir(exp_folder) if os.path.isdir(os.path.join(exp_folder, f))])
-    exp_folder = os.path.join(exp_folder, exp_sub_folder)
-    curr_trial_folder = max([f for f in os.listdir(exp_folder) if os.path.isdir(os.path.join(exp_folder, f))])
-    train_performance.to_csv(os.path.join(exp_folder, curr_trial_folder, "performance.csv"))
-    model.save(os.path.join(exp_folder, curr_trial_folder, "model.pkl"))
+        model, train_performance = centralized_learning(
+            train_dataset,
+            n_epochs,
+            n_workers * n_local_steps * local_batch_size,
+            optimizer_I,
+            scheduler_I=scheduler_I,
+            device=device,
+            verbose=False,
+            val_dataset=val_or_test_set,
+        )
+
+    experiment_path = Path(exp_folder)
+    experiment_runs = [path for path in experiment_path.iterdir() if path.is_dir()]
+    if not experiment_runs:
+        msg = f"No experiment run directories found under {experiment_path}."
+        raise FileNotFoundError(msg)
+    current_run = max(experiment_runs, key=lambda path: path.name)
+    trial_runs = [path for path in current_run.iterdir() if path.is_dir()]
+    if not trial_runs:
+        msg = f"No trial directories found under {current_run}."
+        raise FileNotFoundError(msg)
+    trial_path = max(trial_runs, key=lambda path: path.name)
+    train_performance.to_csv(trial_path / "performance.csv")
+    model.save(str(trial_path / "model.pkl"))
 
     if test_mode:
         test_loss, test_acc = evaluate_model(model, test_dataset, device, verbose=False)
         return {"test_loss": test_loss, "test_acc": test_acc}
-    
+
     val_loss, val_acc = evaluate_model(model, val_dataset, device, verbose=False)
     return {"val_loss": val_loss, "val_acc": val_acc}
 
 
-def custom_trial_name(trial):
+def custom_trial_name(trial: Trial) -> str:
+    """Return a concise directory name for a Ray Tune trial."""
     return f"trial_{trial.trial_id.split('_')[-1]}"
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 2:
+    if len(sys.argv) == EXPERIMENT_ARG_COUNT:
         experiment_name = sys.argv[1]
     else:
-        raise Exception("set experiment name through CLI")
+        msg = "set experiment name through CLI"
+        raise ValueError(msg)
 
-    print("Starting experiment: ", experiment_name)
     search_space: dict = getattr(experiments_config, experiment_name)
 
-    experment_folder = os.path.join(os.path.abspath(os.path.join("artifacts", "results", "runs", "tuning")), experiment_name)
+    experiment_folder = Path("artifacts/results/runs/tuning").resolve() / experiment_name
 
     train_dataset, val_dataset = load_data()
     test_dataset = load_data(test_data=True)
@@ -140,22 +183,22 @@ if __name__ == "__main__":
 
     reporter = CLIReporter(metric_columns=["test_acc" if search_space.get("test_mode", True) else "val_acc"])
 
-    print("Cuda available:", torch.cuda.is_available())
+    logger.info("Starting experiment: %s", experiment_name)
+    logger.info("Cuda available: %s", torch.cuda.is_available())
 
     analysis = tune.run(
-        partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref, exp_folder=experment_folder),
+        partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref, exp_folder=experiment_folder),
         config=search_space,
         num_samples=10,
-        # time_budget_s= 10 * 60 * 60,
+        # time_budget_s= 10 * 60 * 60,  # noqa: ERA001
         progress_reporter=reporter,
-        storage_path=experment_folder,
+        storage_path=str(experiment_folder),
         max_concurrent_trials=1,
         trial_name_creator=custom_trial_name,
         trial_dirname_creator=custom_trial_name,
         metric="test_acc" if search_space.get("test_mode", True) else "val_acc",
-        mode="max"
-    ) 
-    #analysis.dataframe().to_pickle(os.path.join(experment_folder, f"{experiment_name}.pkl"))
-
-    print("Best hyperparameters found: ", analysis.best_config)
-    print("Best validation accuracy: ", analysis.best_result)
+        mode="max",
+    )
+    # analysis.dataframe().to_pickle(os.path.join(experment_folder, f"{experiment_name}.pkl"))  # noqa: ERA001
+    logger.info("Best hyperparameters found: %s", analysis.best_config)
+    logger.info("Best validation accuracy: %s", analysis.best_result)
