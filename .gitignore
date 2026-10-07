@@ -1,4 +1,45 @@
-/data
-*__pycache__*
-tomsTests.py
-.vscode/launch.json
+# Python bytecode and environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.env
+
+# Test and lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build and packaging
+dist/
+build/
+*.egg-info/
+
+# IDE and operating system files
+.vscode/
+.DS_Store
+.ipynb_checkpoints/
+.claude/
+
+# Dataset downloads and generated experiment runs
+data/
+artifacts/
+
+# Scratch and temporary files
+scratch/
+temp/
+tmp/
+*.out
+*.exe
+
+# Generated figures and paper formats are ignored by default.
+*.pdf
+*.pptx
+*.png
+
+# Preserve curated papers and figures.
+!docs/references/*.pdf
+!docs/references/*.pptx
+!docs/figures/*.png

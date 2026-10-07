@@ -13,14 +13,14 @@ from torch.utils.data import random_split
 from torchvision import datasets, transforms
 
 
-import experiments_config
+from . import experiments_config
 
-from model import Instantiator, load_data, evaluate_model
-from hyperparameter import tune_distributed_learning, custom_trial_name
-from optimizers import LAMB, LARS, DoNothing, SlowMo, WarmupCosineAnnealing
-from centralized import centralized_learning
-from distributed import distributed_learning
-from models.plotting_metrics import plot_metrics
+from .model import Instantiator, load_data, evaluate_model
+from .hyperparameter import tune_distributed_learning, custom_trial_name
+from .optimizers import LAMB, LARS, DoNothing, SlowMo, WarmupCosineAnnealing
+from .centralized import centralized_learning
+from .distributed import distributed_learning
+from .plotting_metrics import plot_metrics
 
 
 def run_hyperparam(args):
@@ -29,7 +29,7 @@ def run_hyperparam(args):
 
     search_space: dict = getattr(experiments_config, experiment_name)
     num_samples=args.num_samples
-    experment_folder = os.path.join(os.path.abspath("Results"), experiment_name)
+    experment_folder = os.path.join(os.path.abspath(os.path.join("artifacts", "results", "runs", "experiments")), experiment_name)
 
     train_dataset, val_dataset = load_data()
     test_dataset = load_data(test_data=True)
@@ -84,10 +84,12 @@ def run_centralized(args):
     test_acc = evaluate_model(model, test_dataset, device)
 
     add_on = "_crop28_no_DO_w_CJ_"
-    model.save(os.path.join("models2", optimizer_class.__name__ + add_on + ".lenet"), {"test_acc": test_acc})
+    output_dir = os.path.join("artifacts", "models", "runs", "centralized")
+    os.makedirs(output_dir, exist_ok=True)
+    model.save(os.path.join(output_dir, optimizer_class.__name__ + add_on + ".lenet"), {"test_acc": test_acc})
 
-    performance.to_csv(os.path.join("models2", optimizer_class.__name__ + add_on + "performance.csv"))
-    plot_metrics(performance, os.path.join("models2", optimizer_class.__name__ + add_on + "performance.png"))
+    performance.to_csv(os.path.join(output_dir, optimizer_class.__name__ + add_on + "performance.csv"))
+    plot_metrics(performance, os.path.join(output_dir, optimizer_class.__name__ + add_on + "performance.png"))
 
 def run_train(args):
     print("Running parallel training with:", args)
@@ -141,10 +143,12 @@ def run_train(args):
     name = eval(args.local_optimizer_class)
    
     test_acc = evaluate_model(model, test_dataset, device)
-    model.save(os.path.join("models", name.__name__ + ".lenet"), {"test_acc": test_acc})
+    output_dir = os.path.join("artifacts", "models", "runs", "distributed")
+    os.makedirs(output_dir, exist_ok=True)
+    model.save(os.path.join(output_dir, name.__name__ + ".lenet"), {"test_acc": test_acc})
 
-    performance.to_csv(os.path.join("models", name.__name__ + "performance.csv"))
-    plot_metrics(performance, os.path.join("models", name.__name__ + "performance.png"))
+    performance.to_csv(os.path.join(output_dir, name.__name__ + "performance.csv"))
+    plot_metrics(performance, os.path.join(output_dir, name.__name__ + "performance.png"))
 
 def parse_args_with_dict():
     """Initial step: Check if a dict is provided or manually input args"""

@@ -1,3 +1,3 @@
-e:
-cd e:/Max/Italien/distributed-learning
-e:/Max/Italien/distributed-learning/.venv/Scripts/python.exe e:/Max/Italien/distributed-learning/hyperparameter.py local_ada_scale
+@echo off
+cd /d "%~dp0"
+uv run python -m distributed_learning.hyperparameter local_ada_scale

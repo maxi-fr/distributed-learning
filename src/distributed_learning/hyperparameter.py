@@ -11,14 +11,14 @@ from ray import tune
 from ray.tune import CLIReporter
 # from ray.tune.search.variant_generator import BasicVariantGenerator
 
-from centralized import centralized_learning
-from distributed import distributed_learning
-from model import Instantiator, evaluate_model, load_data
-import experiments_config
+from .centralized import centralized_learning
+from .distributed import distributed_learning
+from .model import Instantiator, evaluate_model, load_data
+from . import experiments_config
 import pickle
 
-from optimizers import DoNothing
-from optimizers import AverageOptimizers, DoNothing
+from .optimizers import DoNothing
+from .optimizers import AverageOptimizers, DoNothing
 
 
 def tune_distributed_learning(config: dict[str, float | int], train_data_obj_ref, exp_folder):
@@ -130,7 +130,7 @@ if __name__ == "__main__":
     print("Starting experiment: ", experiment_name)
     search_space: dict = getattr(experiments_config, experiment_name)
 
-    experment_folder = os.path.join(os.path.abspath("Results2"), experiment_name)
+    experment_folder = os.path.join(os.path.abspath(os.path.join("artifacts", "results", "runs", "tuning")), experiment_name)
 
     train_dataset, val_dataset = load_data()
     test_dataset = load_data(test_data=True)

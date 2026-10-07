@@ -2,7 +2,7 @@ import numpy as np
 from ray import tune
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR, PolynomialLR
-from optimizers import LAMB, LARS, DoNothing, SlowMo, WarmupCosineAnnealing, LocalAdaScale_Manager, LocalAdaScale_Optimizer
+from .optimizers import LAMB, LARS, DoNothing, SlowMo, WarmupCosineAnnealing, LocalAdaScale_Manager, LocalAdaScale_Optimizer
 
 LOCAL_BATCH_SIZE = 64
 

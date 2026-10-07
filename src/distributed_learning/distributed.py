@@ -11,9 +11,9 @@ import torch
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader, random_split, Dataset
 from torchvision import datasets, transforms
-from model import Instantiator, load_data
-from model import LeNet5, Trainer, average_model_params, evaluate_model, set_model_params
-from optimizers import DoNothing, SlowMo, WarmupCosineAnnealing, LARS, LAMB, OptimizerManager
+from .model import Instantiator, load_data
+from .model import LeNet5, Trainer, average_model_params, evaluate_model, set_model_params
+from .optimizers import DoNothing, SlowMo, WarmupCosineAnnealing, LARS, LAMB, OptimizerManager
 
 
 def distributed_learning(train_dataset: Dataset, n_epochs: int, n_workers: int, n_local_steps: int, local_batch_size: int, 
@@ -144,7 +144,7 @@ def plot_metrics(df, fname=None):
     return fig, (ax1, ax2)
 
 if __name__ == "__main__":
-    from experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY, OPT_ADAMW_LR, OPT_ADAMW_W_DECAY
+    from .experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY, OPT_ADAMW_LR, OPT_ADAMW_W_DECAY
     train_dataset, val_dataset = load_data()
 
     name = torch.optim.SGD
@@ -160,7 +160,9 @@ if __name__ == "__main__":
     test_dataset = load_data(test_data=True)
 
     test_acc = evaluate_model(model, test_dataset, torch.nn.CrossEntropyLoss(), device)
-    model.save(os.path.join("models3", name.__name__ + ".lenet"), {"test_acc": test_acc})
+    output_dir = os.path.join("artifacts", "models", "runs", "distributed")
+    os.makedirs(output_dir, exist_ok=True)
+    model.save(os.path.join(output_dir, name.__name__ + ".lenet"), {"test_acc": test_acc})
 
-    performance.to_csv(os.path.join("models3", name.__name__ + "performance.csv"))
-    plot_metrics(performance, os.path.join("models3", name.__name__ + "performance.png"))
+    performance.to_csv(os.path.join(output_dir, name.__name__ + "performance.csv"))
+    plot_metrics(performance, os.path.join(output_dir, name.__name__ + "performance.png"))
