@@ -1,0 +1,523 @@
+% CVPR 2022 Paper Template
+% based on the CVPR template provided by Ming-Ming Cheng (https://github.com/MCG-NKU/CVPR_Template)
+% modified and extended by Stefan Roth (stefan.roth@NOSPAMtu-darmstadt.de)
+
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+%%%%%%%%% PAPER TYPE  - PLEASE UPDATE FOR FINAL VERSION
+\usepackage[review]{cvpr}      % To produce the REVIEW version
+%\usepackage{cvpr}              % To produce the CAMERA-READY version
+%\usepackage[pagenumbers]{cvpr} % To force page numbers, e.g. for an arXiv version
+
+% Include other packages here, before hyperref.
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+
+
+% It is strongly recommended to use hyperref, especially for the review version.
+% hyperref with option pagebackref eases the reviewers' job.
+% Please disable hyperref *only* if you encounter grave issues, e.g. with the
+% file validation for the camera-ready version.
+%
+% If you comment hyperref and then uncomment it, you should delete
+% ReviewTempalte.aux before re-running LaTeX.
+% (Or just hit 'q' on the first LaTeX run, let it finish, and you
+%  should be clear).
+\usepackage[pagebackref,breaklinks,colorlinks]{hyperref}
+
+
+% Support for easy cross-referencing
+\usepackage[capitalize]{cleveref}
+\crefname{section}{Sec.}{Secs.}
+\Crefname{section}{Section}{Sections}
+\Crefname{table}{Table}{Tables}
+\crefname{table}{Tab.}{Tabs.}
+
+
+%%%%%%%%% PAPER ID  - PLEASE UPDATE
+\def\cvprPaperID{*****} % *** Enter the CVPR Paper ID here
+\def\confName{CVPR}
+\def\confYear{2022}
+
+
+\begin{document}
+
+%%%%%%%%% TITLE - PLEASE UPDATE
+\title{DAAI 2024/25 Project on Distributed Learning}
+
+\author{Max Frankenberg\\
+Institution1\\
+Institution1 address\\
+{\tt\small firstauthor@i1.org}
+% For a paper whose authors are all at the same institution,
+% omit the following lines up until the closing ``}''.
+% Additional authors and addresses can be added with ``\and'',
+% just like the second author.
+% To save space, use either the email address or home page, not both
+\and
+Second Author\\
+Institution2\\
+First line of institution2 address\\
+{\tt\small secondauthor@i2.org}
+}
+\maketitle
+\begin{abstract}
+Distributed learning is essential for efficiently processing large-scale datasets. Various approaches, including large-batch and local methods, have been developed to enhance performance. This work investigates the effectiveness of LARS and LAMB for large-batch training, as well as Local SGD, Local AdamW, SlowMo, and Local AdaScale for decentralized optimization. Our findings indicate that the performance of these approaches remains constrained. These findings align with those reported in the literature. To provide a comprehensive evaluation, we also compare them to standard methods such as conventional SGD and AdamW.
+
+The core contribution of this work is an enhancement of Local AdaScale. While existing techniques address the gradient bias introduced by local updates, they do not yet consider momentum effects. We propose a novel theoretic approach to incorporate momentum while simultaneously considering the bias induced by local steps.
+\end{abstract}
+
+%%%%%%%%% BODY TEXT
+\section{Introduction}
+
+The modern success of deep learning and its breakthroughs depend on increasingly complex models. Training these models requires vast amounts of data and computational resources. Due to their massive scale, training such models often includes long runtimes, rendering it impractical to perform on a single device, such as a GPU. Furthermore, with hardware speedup scaling laws reaching their limits, the next generation of deep learning must push beyond the constraints of current algorithms and architectures.\\
+
+One promising approach to address these challenges is distributed learning, where training data is divided across multiple workers. In this work, we explore various existing methods for distributed learning, focusing on LocalSGD, Local AdamW, LARS, LAMB and standard algorithms dealing with large batches. To evaluate their performance, we compare these distributed methods against single-worker algorithms, particularly AdamW and SGD-based approaches.
+
+After conducting these comparisons, we extend the discussion with a novel contribution to the field. State-of-the-art LocalSGD methods aim to improve learning rates by adapting them beyond the standard rules for data-parallel SGD \cite{BALLES2024P}. This adaptation is crucial because gradient estimates in LocalSGD are biased, and the bias depends on the learning rate \cite{BALLES2024P}. However, current approaches lack momentum, which could alter the bias term and, consequently, the optimal learning rate. To address this gap, we propose a LocalSGD variant that incorporates momentum to specifically adapt learning rates and improve performance.
+
+%-------------------------------------------------------------------------
+
+\section{Theoretical Background of Data-Parallel Optimization Approaches}
+
+To handle large datasets, various methods are available.\\
+One approach is to utilize large batch optimizers, such as LARS (Layer-wise Adaptive Rate Scaling) and LAMB (Layer-wise Adaptive Moments for Batching). The key advantages of large batches include faster gradient computation and more efficient use of hardware resources, which can result in shorter training times. However, traditional optimization methods like SGD (Stochastic Gradient Descent) often struggle with large batch sizes, potentially getting stuck in poor local minima. LARS addresses this by adjusting the learning rate per layer, improving the stability and efficiency of the optimization process \cite{you2017largebatchtrainingconvolutional}. LAMB extends LARS by combining the strengths of adaptive optimization methods like Adam with the benefits of large batches. It adjusts both the learning rate and the momentum estimates on a per-layer basis \cite{you2020largebatchoptimizationdeep}.\\
+
+Another approach is to use local methods, such as Local SGD. Local methods aim to reduce communication between workers \cite{lin2020dontuselargeminibatches}. Rather than synchronizing gradients across all workers after each mini-batch, local methods allow workers to independently compute updates based on local data and synchronize less frequently. This reduces the communication overhead, which can become a bottleneck in large-scale distributed training, improving overall efficiency.\\
+
+Bulding up on that, SlowMo builds upon Local SGD and addresses the communication efficiency challenge in distributed optimization \cite{wang2020slowmoimprovingcommunicationefficientdistributed}. SlowMo operates on top of a base algorithm, such as Local SGD or a decentralized method like stochastic gradient push (SGP). After a certain number of steps of the base algorithm, workers periodically average their parameters and perform a momentum update, improving convergence and further reducing communication overhead. For Local SGD with and without SlowMo the question about the choice of the local learning rate remain in both \cite{lin2020dontuselargeminibatches} and \cite{wang2020slowmoimprovingcommunicationefficientdistributed}\\
+
+Therefore, \cite{BALLES2024P} proposed a solution to this problem at the beginning of last year. Local AdaScale dynamically adjusts learning rates by deriving local scaling factors from the variance of gradients within mini-batches, ensuring both stability and efficiency \cite{BALLES2024P}. The following sections will explore this approach in greater detail, laying the groundwork for an extension that incorporates momentum into the method.
+
+%------------------------------------------------------------------------------
+
+\section{Problem Setup}
+The following problem setup is, if not stated otherwise, sourced from \cite{BALLES2024P}.
+Our goal is to minimize
+\begin{equation}
+f(\mathbf{w})=\frac{1}{N} \sum_{i=1}^N f\left(\mathbf{w} ; \mathbf{x}_i\right)
+\end{equation}
+Here, \(\mathbf{w}\) represent the model weights, while the loss function of the \(i\)-th training example is represented by \(f\left(\cdot ; \mathbf{x}_i\right)\). Throughout the whole work, it is assumed that \(f\) is \(L\)-smooth, meaning that its gradient is Lipschitz continuous:
+\[
+\left\|\nabla f\left(\mathbf{w}^{\prime}\right)-\nabla f(\mathbf{w})\right\| \leq L\left\|\mathbf{w}^{\prime}-\mathbf{w}\right\|
+\]
+for all \(\mathbf{w}, \mathbf{w}^{\prime}\) in the domain of \(f\). This implies a quadratic bound:
+\[
+f\left(\mathbf{w}^{\prime}\right) \leq f(\mathbf{w})+\nabla f(\mathbf{w})^T\left(\mathbf{w}^{\prime}-\mathbf{w}\right)+\frac{L}{2}\left\|\mathbf{w}^{\prime}-\mathbf{w}\right\|^2,
+\]
+which will be used in the analysis.\\
+Gradient descent updates the objective iteratively using the rule \(\mathbf{w}_{t+1} = \mathbf{w}_t - \gamma_t \nabla f\left(\mathbf{w}_t\right)\), where \(\gamma_t\) is the learning rate at iteration \(t\). For large datasets, computing the full gradient in each iteration is inefficient. Instead, Stochastic Gradient Descent (SGD) approximates the gradient using a stochastic estimate:
+\[
+\mathbf{g}_t = \frac{1}{B} \sum_{i \in \mathcal{B}} \nabla f\left(\mathbf{w}_t ; \mathbf{x}_i\right)
+\]
+computed on a randomly sampled minibatch \(\mathcal{B} \subset \{1,2,\dots,N\}\) of size \(|\mathcal{B}| = B \ll N\).
+
+In synchronous data-parallel SGD, each worker computes a stochastic gradient \(\mathbf{g}_t^k\) using an independent minibatch. The gradients are averaged as \(\tilde{\mathbf{g}}_t = \frac{1}{K} \sum_{k=1}^K \mathbf{g}_t^k\) before applying an update. Each \(\mathbf{g}_t^k\) is an unbiased estimator of the gradient, \(\mathbb{E}_t\left[\mathbf{g}_t^k\right] = \nabla f_t := \nabla f\left(\mathbf{w}_t\right)\), with variance \(\sigma_t^2 := \operatorname{Var}_t\left[\mathbf{g}_t^k\right]\). Consequently, the averaged gradient \(\tilde{\mathbf{g}}_t\) is an unbiased estimate of \(\nabla f_t\) with variance \(\sigma_t^2 / K\). The notation \(\mathbb{E}_t\) represents the conditional expectation given \(\mathbf{w}_t^k\) for all \(k \in \{1,2,\dots,K\}\).
+
+\subsubsection*{Local SGD}
+The analysis of Local SGD is based on virtual sequences, where
+\[
+\bar{\mathbf{w}}_t := \frac{1}{K} \sum_{k=1}^K \mathbf{w}_t^k \quad \text{and} \quad \bar{\mathbf{g}}_t := \frac{1}{K} \sum_{k=1}^K \mathbf{g}_t^k
+\]
+represent the average values of the per-worker iterates and gradients at each iteration. These sequences are used as analytical tools and are not directly computed by Local SGD during each step. They evolve according to the update rule
+\[
+\bar{\mathbf{w}}_{t+1} = \bar{\mathbf{w}}_t - \gamma_t \bar{\mathbf{g}}_t,
+\]
+which is similar to an SGD trajectory with an "implicit" estimate of the gradient \(\bar{\mathbf{g}}_t\).
+
+Assuming that the gradient variance is bounded over consecutive steps, the mean squared error (MSE) of the implicit gradient estimate in Local SGD satisfies the following inequality:
+\[
+\mathbb{E}\left[\left\|\bar{\mathbf{g}}_{t} - \nabla f\left(\bar{\mathbf{w}}_{t}\right)\right\|^2\right] \leq \underbrace{\frac{\bar{\sigma}_l^2}{K}}_{\text{Variance}} + \underbrace{(H-1) L^2 \gamma^2 \bar{\sigma}_t^2}_{\text{Bias}}.
+\]
+for all \(t \in [0, H)\). The per-worker gradients are evaluated at slightly different points in the parameter space, a consequence of the variations in their local trajectories. This yields the mentioned bias, which is the key point for the differences in the optimal learning rates.
+Local SGD methods usually assume the learning rate to be sufficiently small such that the MSE is dominated by the variance term \cite{BALLES2024P}. This is also where the linear scaling rule originates. Since the variance decreases proportional to the number of workers, the step size (learning rate) can be increased increased in that same vain.
+It shows that we face a trade-off between the number of local steps and the learning rate. To overcome that bias, \cite{BALLES2024P} propose the following learning rate scaling for Local SGD:
+\begin{equation}
+\gamma_t=\frac{1}{L} \cdot \frac{2 \bar{G}_l}{\bar{G}_t+\frac{\bar{\sigma}_t^2}{K}+\sqrt{\left(\bar{G}_t+\frac{\bar{\sigma}_t^2}{K}\right)^2+3(H-1) \bar{G}_t \bar{\sigma}_l^2}},
+\end{equation}
+where
+\begin{align*}
+    \bar{G}_t=\frac{1}{H} \sum_{t^{\prime}=t}^{t+H-1} \mathbb{E}_t\left[\left\|\nabla f\left(\bar{\mathbf{w}}_{t^{\prime}}\right)\right\|^2\right].
+\end{align*}
+The optimal learning rate depends on $L$, which is challenging to estimate in practice and therefore is typically not used. As a result, when the variance of our gradient estimate is reduced by a factor of $1 / K$ due to an increase in the number of workers to $K$, the optimal learning rate is adjusted by the following factor:
+\begin{equation}
+\rho_t=\frac{2\left(\bar{G}_t+\bar{\sigma}_t^2\right)}{\bar{G}_t+\frac{\bar{\sigma}_t^2}{K}+\sqrt{\left(\bar{G}_t+\frac{\bar{\sigma}_t^2}{K}\right)^2+3(H-1) \bar{G}_t \bar{\sigma}_t^2}} .
+\end{equation} with ($H=K=1$).\\
+To extend this approach, the following idea will focus on incorporating momentum to increase the convergence speed. For this, the formulas mentioned here need to be adjusted, as the momentum term affects the bias.
+
+\section{Local AdaScale Adaptation}
+The bias and therefore also the gain ratio in \cite{BALLES2024P} is derived assuming a simple SGD Model update \ref{eq:momentum_update}. However, in practice SGD is most often used with momentum and weight decay adaptations. In fact, in their experiments \cite{BALLES2024P} momentum and weight decay are always used. Presumably, since having the model update be less dependend on the local gradient and more on a momentum term which by definition is slower to change, the model updates on each worker will be more similar and therefore the bias smaller. In this work we expand on the work from \cite{BALLES2024P} by considering "double averaging momentum" as discussed in \cite{wang2020slowmoimprovingcommunicationefficientdistributed} and \cite{yu2019linearspeedupanalysiscommunication} in the calculation of the bias.
+Double averaging momentum refers to the practice of exchanging not only the gradients but also the momentum buffers among the workers. This approach offers the advantage of improved performance in terms of scalability with respect to the number of workers, compared to previous methods.
+
+We define the momentum model update as such
+\begin{align}\label{eq:momentum_update}
+    \mathbf{u}_{t+1} &= \beta \mathbf{u}_t + (1-\beta)\gamma \mathbf{g}_t \\
+    \mathbf{w}_{t+1} &= \mathbf{w}_t - \mathbf{u}_{t+1}.
+\end{align}
+Usually the $1-\beta$ factor is absorbed into the learning rate $(1-\beta)\gamma = \gamma'$ but for this purpose we don't because that way the optimal learning rate is going to be independent of the momentum coefficient and the differences to Local AdaScale are more easily discerned.
+
+In the appendix \ref{sec:derive_bias} we derive an upper bound for the mean-squared-error (MSE) analogous to \cite{BALLES2024P}.
+\begin{align*}
+    \mathbb{E}_{t}\left[\left\|\bar{\mathbf{g}}_{t}-\nabla f\left(\bar{\mathbf{w}}_{t}\right)\right\|^2\right] \leq \frac{\bar{\sigma}_t^2}{K} + L^2 \mathbb{E}\left[\mathbf{V}_{H}\right]
+\end{align*}
+with $\mathbb{E}\left[\mathbf{V}_{H}\right]$ being the
+\begin{align*}
+    \mathbb{E}\left[\mathbf{V}_{H}\right] &\leq \gamma^2\sigma^2\sum_{t=1}^{H-1} (1 + a_H)^{H-1-t} \left((1-\beta)^2 + a_t \right)
+    %\\    &= \frac{1-(1+ a_H)^H}{a_H} (1-\beta)^2\gamma^2\sigma^2 + \sigma^2\sum_{i=0}^{H-1} (1 + a_H)^{H-1-i} a_i
+\end{align*}
+Note how for $\beta = 0$, $a_H$ also equals zero and we recover the bias derived in \cite{BALLES2024P}. Fig.\ref{fig:bias_comp} shows the bias calculated from our formula relative to the bias formula of \cite{BALLES2024P}. The bias drops for larger momentum coefficients.
+We insert the updated bias formula into the equation for the in \cite{BALLES2024P} derived equation for the optimal step size. This is not quite correct since after taking some local steps the local momentum buffer will also be affected by the bias but as a first order approximation it should suffice. It means we can benefit from the equations derived for the optimal step size and gain ratio. We end up with
+\begin{align*}
+    &\mathbb{E}\left[f\left(\bar{\mathbf{w}}_{H}\right)\right] - f\left(\bar{\mathbf{w}}_0\right) \leq
+    \\&-H \cdot\left(\gamma \bar{G}_t-\frac{\gamma^2 L}{2} \bar{G}_t-\frac{\gamma^2 L}{2} \frac{\bar{\sigma}_t^2}{K}-\frac{\gamma}{4} \underbrace{L^2\mathbf{V}_{H}}_\text{Bias} \right)
+\end{align*}
+for the decrease bound and
+\begin{align*}
+    \gamma=\frac{1}{L} \frac{2 \bar{G}_t}{\bar{G}_t+\bar{\sigma}_t^2 / K+\sqrt{\left(\bar{G}_t+\bar{\sigma}_t^2 / K\right)^2+3\bar{G}_t \mathbf{V}^\prime_{H}}}
+\end{align*}
+for the optimal learning rate, where $\mathbf{V}^\prime$ is $\mathbf{V}$ with the learning rate factored out: $\mathbf{V}^\prime := \frac{\mathbf{V}}{\gamma^2}$.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.45\textwidth]{Images/bias_formula_comparison.png}
+    \caption{Gradient bias after $H$ local steps calculated from our formula relative to the bias disregarding momentum}
+    \label{fig:bias_comp}
+\end{figure}
+
+
+\section{Computation vs. Communication Cost}
+In \cite{BALLES2024P} a pseudo-wall-clock-time
+\begin{align*}
+    T_{\text {method }}^{(K, H)}= \underbrace{\frac{n_{\text {method }}^{(K, H)}}{K}}_\text{Iterations} \times(1+ \underbrace{\frac{m}{H}}_\text{Comm.}),
+\end{align*}
+with $m$ being the relative communication overhead is used to analyze the time performance. This clearly demonstrates the advantage of local methods over large-batch methods in scenarios where communication costs are high. Furthermore, it shows how increasing the number of workers reduces the time cost by distributing the training steps among them.
+However, this formula excludes 2 things. Firstly, that design choices like using double-averaging momentum doubles the communication cost. It is important to note that even though it is not explicitly mentioned the large batch methods also average the momentum buffers, since the update step across workers is supposed to behave like one single worker with a $\textit{larger}$ batch size. This raises questions about the practicality of such methods, as also suggested by \cite{lin2020dontuselargeminibatches} and \cite{BALLES2024P} in their work.
+Secondly, it should be noted that when using Local AdaScale the total number of iterations $n_{\text {method }}^{(K, H)}$ might increase with $K$ and $H$.
+
+\section{Experiments}
+We use Ray Tune to run our experiments. The python library offers an easy way to log results and have checkpoint experiments in case runs get interrupted.
+\subsection{Model Architecture and Data Augmentations}
+For the model architecture, we follow the approach of \cite{hsu2020federatedvisualclassificationrealworld}. They utilize a CNN architecture inspired by LeNet5, consisting of two convolution layers with $5 \times 5$ kernels and 64 channels, each followed by a $2 \times 2$ max-pooling layer. This is followed by two fully connected layers with 384 and 192 channels, respectively, and concluded with a softmax linear classifier.\\
+To preprocess our data we follow the work of \cite{reddi2021adaptivefederatedoptimization}, using the CIFAR-100 dataset.
+We apply preprocessing to both the training and test images. For training images, we perform a random crop to a size of 24x24x3, followed by a random horizontal flip. For test images, we apply a central crop to 24x24x3. Both training and test images are then normalized by subtracting the mean and dividing by the standard deviation of the pixel values for each color channel.
+
+To establish baseline targets, we set an accuracy goal of 55\%, as referenced in \cite{hsu2020federatedvisualclassificationrealworld}. However, given that our approach integrates elements from multiple sources, it seems uncertain whether these targets are fully attainable.
+
+CIFAR-100 offers distinct training and test datasets. For hyperparameter tuning, we further partition the training set into separate training and validation subsets.
+In a distributed training setting, data needs to be divided among multiple computing nodes. PyTorch provides a utility called $\operatorname{DistributedSampler}$ to facilitate this process by distributing the dataset across different workers in a way that ensures each worker receives a unique subset of data without overlap \cite{pytorchData2025}. Additionally, $\operatorname{DistributedSampler}$ typically shuffles data in a consistent manner across different workers \cite{pytorchData2025}.
+
+By emulating this behavior, we can create a controlled distributed training environment: after each complete pass through the dataset—where each worker has processed its assigned portion—the data is reshuffled to maintain randomness and prevent ordering biases.
+
+In a single-GPU setting, a simple DataLoader with shuffling after every epoch is sufficient. Since each worker sequentially retrieves batches from the dataset, the disjoint property of data partitioning is naturally preserved.
+
+\subsection{Centralized Baselines}\label{sec:centr_basel}
+As a first step, we aimed to establish a comparison with common non-distributed approaches. The parameters used in the experiment are as follows: the learning rate for SGD is set to 0.031484, while the weight decay for SGD is 0.002244. For AdamW, the learning rate is 0.000495 and the weight decay is 0.069738. Furthermore, we used cosine annealing for learning rate scheduling.\\
+The results are shown in Figures \ref{fig:metrics_sgd} and \ref{fig:metrics_AdamW}: Using mini-batch SGD, we achieve a test accuracy of approximately 53.8\%, which is very close to the previously stated target. In contrast, AdamW only reaches around 49\%.
+
+However, the shortfall in reaching the 55\% accuracy remains unexplained. Despite employing the intended scheduler and exploring various parameter ranges through Ray Tune hyperparameter search, we were unable to close this gap. The found hyperparameters are presented in Figures \ref{fig:hyp_sgd} and \ref{fig:hyp_adam}.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.45\textwidth]{Images/centralized_baseline/metrics_plot_SGD.png}
+    \caption{SGD centralized baseline evolution of train/test loss and accuracy for optimal hyperparameters found by Ray Tune}
+    \label{fig:metrics_sgd}
+\end{figure}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.45\textwidth]{Images/centralized_baseline/metrics_plot_adam.png}
+    \caption{AdamW centralized baseline evolution of train/test loss and accuracy for optimal hyperparameters found by Ray Tune}
+    \label{fig:metrics_AdamW}
+\end{figure}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.45\textwidth]{Images/centralized_baseline/sgd_heatmap_plot_loss.png}
+    \caption{Results of the hyperparameter search for SGDM}
+    \label{fig:hyp_sgd}
+\end{figure}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.45\textwidth]{Images/centralized_baseline/adam_heatmap_plot_loss.png}
+    \caption{Results of the hyperparameter search for AdamW}
+    \label{fig:hyp_adam}
+\end{figure}
+
+For all following experiments, unless otherwise mentioned, the learning rate is first linearly warmed up for $0.055 = 5/90$ epochs before the cosine annealing lr-scheduler is applied. This value comes from \cite{you2017largebatchtrainingconvolutional}. While maintaining a ratio of 0.055, we run the training for 150 epochs.
+\subsection{Large Batch Optimizers}
+In a first step, we conduct a learning rate search for LARS and LAMB. The found optimal values were 0.000526 for LARS and
+0.000908 for LAMB. For the project, it was decided that weight decay would not be included in the hyperparameter search. Instead, it would be taken directly from \cite{you2020largebatchoptimizationdeep}, as the chosen methods are not considered sensible to changes in weight decay, according to \cite{you2017largebatchtrainingconvolutional}\cite{you2020largebatchoptimizationdeep}. Therefore we choose the weight decay as 0.01 for LAMB and 0.0005 for LARS.
+These optimal learning rates, in addition to the hyperparameters found in the centralized baseline experiments, are used to compare the performance of the 4 base optimizers LARS, LAMB, SGD, and AdamW for different effective batch sizes. We analyze the trends at the example of LARS, since all optimizers show similar results.
+In Fig. \ref{fig:lars_bat_size} the results can be observed. Expectedly, the large batch methods struggle to maintain the baseline test accuracy as the effective batch size increases. This is called the "generalization gap" in \cite{you2017largebatchtrainingconvolutional}. Furthermore, while linear scaling performs better than square root scaling at first, at $64$ workers ($=4096$ eff. batch size). the learning rates become so big that the optimization problem becomes unstable.
+Unfortunately, the highest test accuracies achieved with LARS, similar for LAMB, lie below the baselines established in \ref{sec:centr_basel}. However, we ask ourselves whether not optimizing the weight decay might contribute to the generally poorer performance observed.
+The square roots scalings diminished performance for larger $K$, is expected, since the total number of steps taken deceases proportional to $K$, while the size of a single step only increases with the square-root of $K$. This relates concept of scale-invariant iterations discussed in \cite{BALLES2024P}, where the total number of steps is increased because the learning rate isn't linearly scaled.
+
+It is worth noting that the algorithms specifically designed for large batches did not show significantly better performance. In fact, the effectiveness of large-batch algorithms has been questioned in recent work by \cite{BALLES2024P}, casting doubt on their overall advantages.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.45\textwidth]{Images/lars_bat_size.png}
+    \caption{Effective batch size = n workers $\times$ local batch size}
+    \label{fig:lars_bat_size}
+\end{figure}
+
+\subsection{Local Methods}
+In the first step, we explore simple local methods using approaches for hyperparameters from the centralized methods. The base optimizers are both SGD and AdamW. The base learning rates from \ref{sec:centr_basel} linearly scaled with $K$. As presented in Figure \ref{fig:sgd_results} at the example of SGD, the test accuracy decreases with an increasing number of workers. Interestingly, no clear drop off for an increasing $H$ can be observed. We assume that eventually for larger $H$ it happens.
+Results for AdamW are basically the same.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.45\textwidth]{Images/local_methods/sgd_results_color.png}
+    \caption{Test-accuracy for different number of workers $K$ and different number of local steps $H$}
+    \label{fig:sgd_results}
+\end{figure}
+
+For a fair comparison of the degradation of performance the effective batch size $B_\text{eff.} = KHB$ is used with $H=1$ for the large batch models. Comparing Figures \ref{fig:lars_bat_size} and \ref{fig:sgd_res_eff_bat_size} we observe that the local methods perform better when the effective batch size increases.
+\begin{figure}
+    \centering
+    \includegraphics[width=0.45\textwidth]{Images/local_methods/sgd_results3.png}
+    \caption{Test-accuracy for different over effective batch size $B_\text{eff.} = KHB$}
+    \label{fig:sgd_res_eff_bat_size}
+\end{figure}
+
+In Figure \ref{fig:local_ada_scale_metrics} the test loss and accuracy plots for a run of Local AdaScale with $K=H=8$ are shown. Not just the fact that the achieved accuracy is higher than for standard Local SGD but also the shape of the curve. The training loss seems to drop for a while before picking back up again around the 250th epoch. Also interesting to note is the number of training epochs. Because Local AdaScale trains for a scale invariant number of epochs and the gain ratio (Fig. \ref{fig:gain_ratio}) is always much lower than 8, the number of workers.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.45\textwidth]{Images/local_ada_sclaer/LocalAdaScale_Optimizerperformance.png}
+    \caption{Test-loss and accuracy for Ada-Scale at $K=8$ and $H=8$}
+    \label{fig:local_ada_scale_metrics}
+\end{figure}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.45\textwidth]{Images/local_ada_sclaer/gain_ratios.png}
+    \caption{Gain ratio evolution for Local AdaScale training with $K=H=8$}
+    \label{fig:gain_ratio}
+\end{figure}
+
+
+\section{Discussion and Outlook}
+We successfully executed the experiments outlined in the project. For the SGD, we nearly achieved the desired results. However, the performance of the other approaches slightly fell short of expectations.
+
+A possible reason for the sub-optimal results is the presence of noise in the experiments. It would be beneficial to repeat the experiments on different random seeds and average the results to mitigate this. For instance, in \cite{wang2020slowmoimprovingcommunicationefficientdistributed}, they conducted each experiment with five different random seeds. While we were unable to identify any specific problems, the results were still close to our goals.
+
+Despite these challenges, the primary objective of the project was successfully achieved. We were able to make a contribution to the enhancement of the Local AdaScale algorithm. In this regard, we demonstrated that incorporating momentum in the formula leads to reduced bias when compared to the local methods proposed thus far.
+
+Future work could examine the empirical performance by implementing the algorithm and testing it with different datasets and architectures, which we were unable to explore due to time constraints.
+
+%\newpage
+%\cleardoublepage
+\section{Appendix}
+\subsection{Glossary}
+\begin{table}[h]
+\centering
+\begin{tabular}{c c}
+\hline Symbol & Meaning \\
+\hline$K$ & Number of workers \\
+$H$ & Number of local steps \\
+%$\gamma^{\text {base }}$ & Unscaled learning rate for $K=1$ \\
+$B$ & Batch size per worker and step \\
+$t$ & Current timestep with\\&$t=0$, being a synchronization point \\
+$\nabla f_t$ & Gradient of function $f$ at $\mathbf{w}_t$ \\
+$\sigma_t^2$ & Variance of gradient estimation at time $t$ \\
+$\mathbf{g}_t^k$ & Gradient estimate on worker $k$ at time $t$ \\
+$\bar{G}_t, \sigma_t$ & Virtual Gradient magnitude \\ &and variance estimate for Local SGD \\
+$\mathbf{w}_t^k$ & Model weights on worker $k$ at time $t$ \\
+$\beta$ & Momentum coefficient \\
+$\mathbf{u}_t$ & Momentum buffer at time $t$\\
+\hline
+\end{tabular}
+\caption{Table of symbols}
+\end{table}
+\subsection{Deriving MSE} \label{sec:derive_bias}
+Starts of same as in \cite{BALLES2024P}.
+\begin{align*}
+    \mathbb{E}_{t}\left[\left\|\bar{\mathbf{g}}_{t}-\nabla f\left(\bar{\mathbf{w}}_{t}\right)\right\|^2\right]
+    &= \underbrace{\mathbb{E}_{t}\left[\left\|\frac{1}{K} \sum_{k=1}^K\left(\mathbf{g}_{t}^k-\nabla f\left(\mathbf{w}_{t}^k\right)\right)\right\|^2\right]}_{\text {Term } 1}\\
+    &+ \underbrace{\left\|\frac{1}{K} \sum_{k=1}^K\left(\nabla f\left(\mathbf{w}_{t}^k\right)-\nabla f\left(\bar{\mathbf{w}}_{t}\right)\right)\right\|^2}_{\text {Term } 2}
+\end{align*}
+The first term is the same as in \cite{BALLES2024P} and can be upper bounded using the variance bound \ref{eq:var_bound}.
+\begin{align*}
+    %\mathbb{E}_{l}\left[\left\|\frac{1}{K} \sum_{k=1}^K\left(\mathbf{g}_{l}^k-\nabla f\left(\mathbf{w}_{t}^k\right)\right)\right\|^2\right]
+    \text{Term 1}
+    %&=\frac{1}{K^2} \sum_{i, j} \underbrace{\mathbb{E}\left[\left(\mathbf{g}_{l}^i-\nabla f\left(\mathbf{w}_{t}^i\right)\right)^T\left(\mathbf{g}_{t}^j-\nabla f\left(\mathbf{w}_{t}^j\right)\right)\right]}_{\leq \bar{\sigma}_t^2 \delta_{i j}}
+    \leq \frac{\bar{\sigma}_t^2}{K}.
+\end{align*}
+For Term 2, we use Jensen's inequality and $L$-smoothness to get
+\begin{align*}
+    %\left\|\frac{1}{K} \sum_{k=1}^K\left(\nabla f\left(\mathbf{w}_{t}^k\right)-\nabla f\left(\bar{\mathbf{w}}_{t}\right)\right)\right\|^2
+    \text{Term 2}
+    &\leq \frac{1}{K} \sum_{k=1}^K\left\|\left(\nabla f\left(\mathbf{w}_{t}^k\right)-\nabla f\left(\bar{\mathbf{w}}_{t}\right)\right)\right\|^2
+    \\&\leq L^2 \underbrace{\frac{1}{K} \sum_{k=1}^K\left\|\mathbf{w}_{t}^k-\bar{\mathbf{w}}_{t}\right\|^2}_{=: V_{t}}
+\end{align*}
+This second Term, the bias, will be further examined.
+
+\subsection{Useful Facts}
+\subsubsection{Bounded Gradient Variance}
+We assume that for $H$ local steps of momentum SGD with a constant step size $\gamma$ the gradient variance to be bounded
+\begin{align}\label{eq:var_bound}
+    \operatorname{Var}_{t}\left[\mathrm{g}_{t}^k\right] \leq \bar{\sigma}_0^2.
+\end{align}
+\subsubsection{Lipschitz Smooth}
+Throughout this work, we assume the loss $f$ to be $L$-smooth, that is
+\begin{align*}
+\left\|\nabla f\left(\mathbf{w}^{\prime}\right)-\nabla f(\mathbf{w})\right\| \leq L\left\|\mathbf{w}^{\prime}-\mathbf{w}\right\|
+\end{align*}
+for all $\mathbf{w}, \mathbf{w}^{\prime}$ in the domain of $f$. This implies the local quadratic bound
+\begin{align*}
+f\left(\mathbf{w}^{\prime}\right) \leq f(\mathbf{w}) + \left\langle \nabla f(\mathbf{w}), (\mathbf{w}^{\prime}-\mathbf{w})\right\rangle
++\frac{L}{2}\left\|\mathbf{w}^{\prime}-\mathbf{w}\right\|^2.
+\end{align*}
+\subsubsection{$\mu$-Convex}
+The loss function $f$ is assumed to be $\mu$-strongly convex for $\mu \geq 0$
+\begin{align*}
+f(\mathbf{w}^{\prime}) \geq f(\mathbf{w}) +\left\langle\nabla f(\mathbf{w}), \mathbf{w}^{\prime}-\mathbf{w} \right\rangle + \frac{\mu}{2}\|\mathbf{w}^{\prime}-\mathbf{w}\|^2.
+\end{align*}
+
+\subsubsection{Jensen's Inequality}
+For convex functions $f$ Jensen's inequality states
+\begin{align*}
+    f(\mathbb{E}[X]) &\leq \mathbb{E}[f(X)] \\
+    f\left(\frac{1}{K} \sum_{k=1}^K \mathbf{w}^k\right) = f\left(\bar{\mathbf{w}} \right) &\leq \frac{1}{K} \sum_{k=1}^K f\left(\mathbf{w}^k\right)
+\end{align*}
+As a special case with $f(\mathbf{w})=\|\mathbf{w}\|^2$, we obtain
+$$
+\left\|\frac{1}{K} \sum_{k=1}^K \mathbf{w}^k\right\|^2 \leq \frac{1}{K} \sum_{k=1}^K\left\|\mathbf{w}^k\right\|^2 .
+$$
+
+\subsubsection{Variance decomposition}
+Throughout the proofs, we use the variance decomposition that holds for any random vector $X$ with finite second moment:
+$$
+\mathbb{E}\left[\|X\|^2\right]=\mathbb{E}\left[\|X-\mathbb{E}[X]\|^2\right]+\|\mathbb{E}[X]\|^2
+$$
+
+In particular, its version for vectors with finite number of values gives
+
+$$
+\frac{1}{M} \sum_{k=1}^K\left\|X_k\right\|^2=\frac{1}{K} \sum_{k=1}^K\left\|X_k-\frac{1}{K} \sum_{k=1}^K X_k\right\|^2+\left\|\frac{1}{K} \sum_{k=1}^K X_k\right\|^2
+$$
+We can define a lower bound
+\begin{align}\label{eq:var_dec}
+    \mathbb{E}\left[\|X-\mathbb{E}[X]\|^2\right] \leq \mathbb{E}\left[\|X\|^2\right]
+\end{align}
+
+\subsection{Deriving Bias}
+The derivation follows the proof of Lemma 1 in \cite{khaled2022}. We start of by inserting the update equation \ref{eq:momentum_update} in $\mathbf{V}_{t+1}$, then expanding the square and finally averaging both sides. The result is
+\begin{align*}
+    \mathbb{E}\left[\mathbf{V}_{t+1}\right] = \mathbf{V}_t
+    &- 2 (1-\beta)\gamma \frac{1}{K}\sum_k\mathbb{E}\left[\langle \mathbf{w}_t^k - \bar{\mathbf{w}}_t, \mathbf{g}_t^k - \bar{\mathbf{g}}_t \rangle \right]
+    \\&+ (1-\beta)^2\gamma^2 \frac{1}{K}\sum_k\mathbb{E}\left[\|\mathbf{g}_t^k - \bar{\mathbf{g}}_t \|^2\right]
+    \\&+ \beta^2 \frac{1}{K}\sum_k\mathbb{E}\left[\|\mathbf{u}_t^k - \bar{\mathbf{u}}_t \|^2\right]
+    \\&-2 \beta \frac{1}{K}\sum_k \langle \mathbf{w}_t^k - \bar{\mathbf{w}}_t, \mathbb{E}\left[\mathbf{u}_t^k - \bar{\mathbf{u}}_t\right] \rangle
+    \\&- 2 \beta (1-\beta)\gamma \frac{1}{K}\sum_k\mathbb{E}\left[\langle \mathbf{u}_t^k - \bar{\mathbf{u}}_t, \mathbf{g}_t^k - \bar{\mathbf{g}}_t \rangle\right].
+\end{align*}
+\subsubsection{Term 1, 2 and 3}
+The first 3 terms are just as in the no momentum case \cite{khaled2022} and are therefore not analyzed in more detail.
+\subsubsection{Term 4}
+To properly account for momentum, we need to examine the fourth term:
+\begin{align*}
+    \frac{1}{K}\sum_k\mathbb{E}\left[\|\mathbf{u}_t^k - \bar{\mathbf{u}}_t \|^2\right]
+\end{align*}
+Starting by deriving a general form of the momentum buffer update equation we get
+\begin{align*}
+    \mathbf{u}_{t} &= \beta^t \mathbf{u}_0 + (1-\beta)\gamma \sum_{i=0}^{t-1} \beta^{i} \mathbf{g}_{t-1-i}.
+\end{align*}
+After the synchronization step all momentum buffers are the same $\left(\mathbf{u}_0^k - \bar{\mathbf{u}}_0 \right) = 0$ so the deviation from the mean $t$ steps after synchronization is
+\begin{align*}
+    \mathbf{u}_{t}^k - \bar{\mathbf{u}}_{t} &= (1-\beta)\gamma \sum_{i=0}^{t-1} \beta^{i} \left(\mathbf{g}_{t-1-i}^k - \bar{\mathbf{g}}_{t-1-i} \right)
+    %\frac{1}{K}\sum_k\mathbf{u}_{t+H}^k - \bar{\mathbf{u}}_{t+H} &= (1-\beta)\gamma \frac{1}{K}\sum_k\sum_{i=0}^{H-1} \beta^{i} \left(\mathbf{g}_{t+H-i-1}^k - \bar{\mathbf{g}}_{t+H-i-1} \right)
+\end{align*}
+In the next step we take expectation of the norm, which using \ref{eq:var_dec} simplifies to
+\begin{align*}
+    &\mathbb{E}\left[\|\mathbf{u}_{t}^k - \bar{\mathbf{u}}_{t}\|^2\right]\\
+    &=  (1-\beta)^2\gamma^2 \mathbb{E}\left[\left\|\sum_{i=0}^{t-1} \beta^{i} \left(\mathbf{g}_{t-i-1}^k - \bar{\mathbf{g}}_{t-i-1} \right)\right\|^2\right] \\
+    &\leq (1-\beta)^2\gamma^2 \sum_{i=0}^{t-1} \beta^{2i} \mathbb{E}\left[\left\|\left(\mathbf{g}_{t-i-1}^k - \bar{\mathbf{g}}_{t-i-1} \right)\right\|^2\right]
+\end{align*}
+Taking the mean on both sides gives
+\begin{align*}
+    &\frac{1}{K}\sum_k\mathbb{E}\left[\|\mathbf{u}_{t}^k - \bar{\mathbf{u}}_{t}\|^2\right]\\
+    %&\leq  (1-\beta)^2\gamma^2 \sum_{i=0}^{t-1} \beta^{2i} \left(\sigma^2+\frac{2 L}{K} \sum_k\left\langle \mathbf{w}_{t-i-1}^k-\bar{\mathbf{w}}_{t-i-1}, \nabla f\left(\mathbf{w}_{t-i-1}^k\right)\right\rangle\right)\\
+    &\leq  (1-\beta)^2\gamma^2 \sum_{i=0}^{t-1} \beta^{2i} (\sigma^2+ L^2 \underbrace{\mathbf{V}_{t-i-1}}_{\leq \mathbf{V}_{t-1}} ) \\
+    %&=  \frac{(1-\beta^{2t})}{(1-\beta^2)}(1-\beta)^2\gamma^2 \sigma^2 + (1-\beta)^2\gamma^2 L^2\sum_{i=0}^{t-1} \beta^{2i} \mathbf{V}_{t-i-1} \\
+    &\leq \frac{(1-\beta^{2t})}{(1-\beta^2)}(1-\beta)^2\gamma^2 \left(\sigma^2+ L^2 \mathbf{V}_{t-1} \right).
+\end{align*}
+\subsubsection{Term 5}
+Term 5 is negativ, so
+\begin{align*}
+    \frac{1}{K}\sum_k \langle \mathbf{w}_t^k - \bar{\mathbf{w}}_t, \mathbb{E}\left[\mathbf{u}_t^k - \bar{\mathbf{u}}_t\right] \rangle
+\end{align*}
+has to be lower bounded.
+Starting with the inner product:
+\begin{align*}
+    &\langle \mathbf{u}_{t}^k - \bar{\mathbf{u}}_{t}, \mathbf{w}_{t}^k - \bar{\mathbf{w}}_{t} \rangle \\
+    %&= (1-\beta)\gamma \frac{1}{K}\sum_k\sum_{i=0}^{{t}-1} \mathbb{E}\left[\langle\beta^{i} \left(\mathbf{g}_{{t}-i-1}^k - \bar{\mathbf{g}}_{{t}-i-1} \right),
+    %\mathbf{w}_{t}^k - \bar{\mathbf{w}}_{t} \rangle\right]
+    &= \langle \mathbf{u}_{t}^k - \bar{\mathbf{u}}_{t}, (\mathbf{w}_{t-1}^k - \mathbf{u}_{t}^k) - (\bar{\mathbf{w}}_{t-1} - \bar{\mathbf{u}}_{t}) \rangle \\
+    &= \langle \mathbf{u}_{t}^k - \bar{\mathbf{u}}_{t}, -(\mathbf{u}_{t}^k - \bar{\mathbf{u}}_{t}) + \mathbf{w}_{t-1}^k - \bar{\mathbf{w}}_{t-1} \rangle  \\
+    &= -\|\mathbf{u}_{t}^k - \bar{\mathbf{u}}_{t}\|^2 + \langle \mathbf{u}_{t}^k - \bar{\mathbf{u}}_{t}, \mathbf{w}_{t-1}^k - \bar{\mathbf{w}}_{t-1} \rangle \\
+%\end{align*}
+%\begin{align*}
+    &= -\|\mathbf{u}_{t}^k - \bar{\mathbf{u}}_{t}\|^2 + \langle \beta (\mathbf{u}_{t-1} - \bar{\mathbf{u}}_{t-1})
+    \\&+ (1-\beta)\gamma (\mathbf{g}_{t-1} - \bar{\mathbf{g}}_{t-1}), \mathbf{w}_{t-1}^k - \bar{\mathbf{w}}_{t-1} \rangle \\
+    &= -\sum_{i=0}^{t-1}\beta^i \|\mathbf{u}_{i}^k - \bar{\mathbf{u}}_{i}\|^2\\
+    &+ (1-\beta)\gamma \sum_{i=1}^{t-1}\beta^{i-1}\langle \mathbf{g}_{t-i-1} - \bar{\mathbf{g}}_{t-i-1}, \mathbf{w}_{t-i-1}^k - \bar{\mathbf{w}}_{t-i-1} \rangle
+\end{align*}
+Applying the expectation and mean on both sides gives:
+\begin{align*}
+    &\frac{1}{K}\sum_k\mathbb{E}\left[\langle \mathbf{u}_{t}^k - \bar{\mathbf{u}}_{t}, \mathbf{w}_{t}^k - \bar{\mathbf{w}}_{t} \rangle \right]\\
+    &= -\sum_{i=0}^{t-1}\beta^i \frac{1}{K}\sum_k\mathbb{E}\left[\|\mathbf{u}_{t-i}^k - \bar{\mathbf{u}}_{t-i}\|^2\right]\\
+    &+ (1-\beta)\gamma \sum_{i=1}^{t-1}\beta^{i-1}\\
+    &\frac{1}{K}\sum_k\mathbb{E}\left[\langle \mathbf{g}_{t-i-1} - \bar{\mathbf{g}}_{t-i-1}, \mathbf{w}_{t-i-1}^k - \bar{\mathbf{w}}_{t-i-1} \rangle\right]\\
+    &= -\sum_{i=0}^{t-1}\beta^i \frac{1}{K}\sum_k\mathbb{E}\left[\|\mathbf{u}_{t-i}^k - \bar{\mathbf{u}}_{t-i}\|^2\right]\\
+    & + (1-\beta)\gamma \sum_{i=1}^{t-1}\beta^{i-1}\underbrace{\frac{1}{K}\sum_k\langle \nabla f(\mathbf{w}_{t-i-1}^k), \mathbf{w}_{t-i-1}^k - \bar{\mathbf{w}}_{t-i-1} \rangle}_{\overset{\approx}{\geq} 0, \text{ because convexity}}\\
+    &\overset{\approx}{\geq} - \sum_{i=0}^{t-1}\beta^i \frac{1}{K}\sum_k\mathbb{E}\left[\|\mathbf{u}_{t-i}^k - \bar{\mathbf{u}}_{t-i}\|^2\right]\\
+    &\geq - \frac{(1-\beta^{t})(1-\beta^{2t})}{(1-\beta^2)}(1-\beta)\gamma^2 \sigma^2
+    - (1-\beta)^2\gamma^2 L^2\\
+    &\sum_{j=0}^{t-1}\beta^j \sum_{i=0}^{j-1} \beta^{2i} \mathbf{V}_{j-i-1} \\
+    &\geq - \frac{(1-\beta^{t})(1-\beta^{2t})}{(1-\beta^2)}(1-\beta)\gamma^2 \left(\sigma^2
+    +  L^2 \mathbf{V}_{t-1}\right)
+\end{align*}
+
+\subsubsection{Term 6}
+Term 6 also has to be lower bounded.
+\begin{align*}
+    &\frac{1}{K}\sum_k\mathbb{E}\left[\langle \mathbf{u}_{t}^k - \bar{\mathbf{u}}_{t}, \mathbf{g}_{t}^k - \bar{\mathbf{g}}_{t} \rangle\right] \\
+    &= (1-\beta)\gamma \frac{1}{K}\sum_k\sum_{i=0}^{{t}-1} \mathbb{E}\left[\langle\beta^{i} \left(\mathbf{g}_{{t}-i-1}^k - \bar{\mathbf{g}}_{{t}-i-1} \right),
+    \mathbf{g}_{t}^k - \bar{\mathbf{g}}_{t} \rangle\right] \\
+    &= (1-\beta)\gamma \frac{1}{K}\sum_k\sum_{i=0}^{{t}-1} \beta^{({t}-i-1)} \mathbb{E}\left[\langle\mathbf{g}_i^k - \bar{\mathbf{g}}_{i},
+    \mathbf{g}_{t}^k - \bar{\mathbf{g}}_{t} \rangle\right]
+    %\\ &\leq (1-\beta^{t})\gamma \sigma^2 + L^2 \mathbf{V}_{t}
+\end{align*}
+The expression describes how deviations in gradient estimates and correlated to past deviations. It is assumed to be greater than 0.
+\subsection{Final Equation}
+Putting everything together we get
+\begin{align*}
+    \mathbb{E}\left[\mathbf{V}_{t+1}\right] &= \mathbf{V}_t\\
+    &+ (1-\beta)^2\gamma^2\sigma^2\\
+    &+ \beta^2 \frac{(1-\beta^{2t^\prime})}{(1-\beta^2)}(1-\beta)^2\gamma^2 \left(\sigma^2+ L^2 \mathbf{V}_{t^\prime-1} \right)\\
+    &+2 \beta \frac{(1-\beta^{t^\prime})(1-\beta^{2t^\prime})}{(1-\beta^2)}(1-\beta)\gamma^2 \left(\sigma^2
+    +  L^2 \mathbf{V}_{t^{\prime}-1}\right) \\
+    &= \mathbf{V}_t + \left((1-\beta)^2\gamma^2 + a_t\gamma^2 \right)\sigma^2 + a_t L^2 \gamma^2\mathbf{V}_{t-1}
+\end{align*}
+with variable $a_t$ defined as
+\begin{align*}
+    a_t &=  \beta^2 \frac{(1-\beta^{2t^\prime})}{(1-\beta^2)}(1-\beta)^2 + 2 \beta \frac{(1-\beta^{t^\prime})(1-\beta^{2t^\prime})}{(1-\beta^2)}(1-\beta)
+\end{align*}
+to ease calculations.
+Using $\lambda \leq \frac{1}{2L}$ \cite{khaled2022}, $\gamma^2L^2 \leq \frac{1}{4}$.
+And $\mathbf{V}_{0} = 0$. It follows
+\begin{align*}
+    \mathbb{E}\left[\mathbf{V}_{t}\right] &\leq \gamma^2\sigma^2\sum_{i=1}^{t-1} (1 + \frac{a_t}{4})^{t-1-i} \left((1-\beta)^2 + a_i \right)
+\end{align*}
+Notably for $\beta = 0$, $a_t$ also equals zero and the former equation from \cite{BALLES2024P} is recovered.
+
+%\newpage
+%%%%%%%%% REFERENCES
+{\small
+\bibliographystyle{ieee_fullname}
+\bibliography{egbib}
+}
+
+\end{document}
