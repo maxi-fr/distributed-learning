@@ -2,19 +2,15 @@ from __future__ import annotations
 
 import logging
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 import torch
-from torch.optim import SGD
 from torch.optim.lr_scheduler import CosineAnnealingLR, PolynomialLR
 from torch.utils.data import DataLoader, Dataset
 
-from .experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY
-from .model import Instantiator, LeNet5, Trainer, evaluate_model, load_data
+from .model import Instantiator, LeNet5, Trainer, evaluate_model
 from .optimizers import WarmupCosineAnnealing
-from .plotting_metrics import plot_metrics
 
 if TYPE_CHECKING:
     from collections.abc import Sized
@@ -114,38 +110,3 @@ def centralized_learning(  # noqa: PLR0913
         performance[["val_loss", "val_acc"]] = val_metrics
 
     return model, performance
-
-
-if __name__ == "__main__":
-    train_dataset, val_dataset = load_data()
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    n_epochs = 150
-    batch_size = 64
-    opt_class = SGD
-
-    optimizer_i = Instantiator(opt_class, {"lr": OPT_SGD_LR, "momentum": 0.9, "weight_decay": OPT_SGD_W_DECAY})
-    scheduler_i = Instantiator(CosineAnnealingLR, {})
-
-    model, performance = centralized_learning(
-        train_dataset,
-        n_epochs,
-        batch_size,
-        optimizer_i,
-        scheduler_I=scheduler_i,
-        device=device,
-        verbose=True,
-        val_dataset=val_dataset,
-    )
-
-    test_dataset = load_data(test_data=True)
-
-    test_acc = evaluate_model(model, test_dataset, device)
-
-    output_dir = Path("artifacts/models/runs/centralized")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    model.save(str(output_dir / f"{opt_class.__name__}.lenet"), {"test_acc": test_acc})
-
-    performance.to_csv(output_dir / f"{opt_class.__name__}performance.csv")
-    plot_metrics(performance, output_dir / f"{opt_class.__name__}performance.png")

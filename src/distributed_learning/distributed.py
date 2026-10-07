@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -12,13 +11,14 @@ from matplotlib import pyplot as plt
 from torch.optim.lr_scheduler import CosineAnnealingLR, PolynomialLR
 from torch.utils.data import DataLoader, Dataset
 
-from .model import Instantiator, LeNet5, Trainer, average_model_params, evaluate_model, load_data, set_model_params
+from .model import Instantiator, LeNet5, Trainer, average_model_params, evaluate_model, set_model_params
 from .optimizers import AverageOptimizers, DoNothing, WarmupCosineAnnealing
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Sized
+    from pathlib import Path
 
 
 def distributed_learning(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917
@@ -257,38 +257,3 @@ def plot_metrics(
     if fname is not None:
         fig.savefig(fname)
     return fig, (ax1, ax2)
-
-
-if __name__ == "__main__":
-    from .experiments_config import OPT_SGD_LR, OPT_SGD_W_DECAY
-
-    train_dataset, val_dataset = load_data()
-
-    name = torch.optim.SGD
-
-    local_optimizer_i = Instantiator(name, {"lr": OPT_SGD_LR, "momentum": 0.9, "weight_decay": OPT_SGD_W_DECAY})
-    scheduler_i = Instantiator(CosineAnnealingLR, {"eta_min": 1e-7})
-
-    model, performance = distributed_learning(
-        train_dataset,
-        n_epochs=150,
-        n_workers=8,
-        n_local_steps=16,
-        local_batch_size=64,
-        local_optimizer_I=local_optimizer_i,
-        optimizer_manager_I=Instantiator(AverageOptimizers, {}),
-        scheduler_I=scheduler_i,
-        verbose=True,
-        val_dataset=val_dataset,
-    )
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    test_dataset = load_data(test_data=True)
-
-    test_acc = evaluate_model(model, test_dataset, device)
-    output_dir = Path("artifacts/models/runs/distributed")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    model.save(str(output_dir / f"{name.__name__}.lenet"), {"test_acc": test_acc})
-
-    performance.to_csv(output_dir / f"{name.__name__}performance.csv")
-    plot_metrics(performance, output_dir / f"{name.__name__}performance.png")

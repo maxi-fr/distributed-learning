@@ -8,13 +8,13 @@ import torch
 from ray import tune
 from ray.tune import CLIReporter
 
-from . import experiments_config, optimizers
-from .centralized import centralized_learning
-from .distributed import distributed_learning
-from .hyperparameter import custom_trial_name, tune_distributed_learning
-from .model import Instantiator, evaluate_model, load_data
-from .optimizers import AverageOptimizers
-from .plotting_metrics import plot_metrics
+from distributed_learning import experiments_config, optimizers
+from distributed_learning.centralized import centralized_learning
+from distributed_learning.distributed import distributed_learning
+from distributed_learning.hyperparameter import custom_trial_name, tune_distributed_learning
+from distributed_learning.model import Instantiator, evaluate_model, load_data
+from distributed_learning.optimizers import AverageOptimizers
+from distributed_learning.plotting_metrics import plot_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -193,20 +193,23 @@ def parse_args_with_dict() -> argparse.Namespace:
         Parsed command-line options.
     """
     # Initialize the parser
-    parser = argparse.ArgumentParser(description="Script to run different modes")
+    parser = argparse.ArgumentParser(description="Run centralized, distributed, or hyperparameter-tuning workflows.")
 
     # Collect the available dicts from experiments_config
-    dict_options = {name: value for name, value in experiments_config.__dict__.items() if isinstance(value, dict)}
+    dict_options = {
+        name: value
+        for name, value in experiments_config.__dict__.items()
+        if isinstance(value, dict) and not name.startswith("_")
+    }
 
     # Add argument to specify if dict is used
     parser.add_argument("--dict_name", type=str, help="Name of the dictionary to use", choices=dict_options.keys())
-    parser.add_argument("--mode", choices=("centralized", "train", "experiment"), help="Training mode")
+    parser.add_argument("--mode", choices=("centralized", "train", "experiment"), required=True, help="Workflow to run")
 
     parser.add_argument("--n_epochs", type=int, help="Number of epochs", default=150)
     parser.add_argument(
-        "--use_cuda", action=argparse.BooleanOptionalAction, help="Use CUDA for training", default=False
+        "--use-cuda", "--use_cuda", action=argparse.BooleanOptionalAction, help="Use CUDA for training", default=False
     )
-    parser.add_argument("--learning_rate", type=float, help="Learning rate", default=None)
     parser.add_argument("--n_workers", type=int, help="Number of workers", default=None)
     parser.add_argument("--n_local_steps", type=int, help="Number of local steps", default=None)
     parser.add_argument("--local_batch_size", type=int, help="Local batch size", default=None)
@@ -219,14 +222,18 @@ def parse_args_with_dict() -> argparse.Namespace:
     parser.add_argument("--global_optimizer_class", type=str, help="Global optimizer class", default=None)
     parser.add_argument("--global_optimizer_lr", type=float, help="Global optimizer lr", default=0.0)
     parser.add_argument("--global_optimizer_momentum", type=float, help="Global optimizer momentum", default=0.0)
-    parser.add_argument("--verbose", action=argparse.BooleanOptionalAction, help="Verbose", default=True)
+    parser.add_argument("--verbose", action=argparse.BooleanOptionalAction, help="Log training progress", default=True)
     parser.add_argument("--num_samples", type=int, help="Number of Samples", default=20)
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.mode == "experiment" and args.dict_name is None:
+        parser.error("--dict_name is required when --mode is 'experiment'.")
+    return args
 
 
 def main() -> None:
     """Dispatch to the selected training or tuning workflow."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     # First Step: check whether to use dict or command-line args
     args = parse_args_with_dict()
     # Second Step: run the function according to the mode

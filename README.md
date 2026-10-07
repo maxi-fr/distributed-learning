@@ -21,22 +21,24 @@ The project targets Python 3.13 or later. Dataset downloads are stored under `da
 
 ## Run
 
-Run a training mode from the repository root:
+Run a training mode from the repository root. The CLI parser displays all
+options with `--help`; boolean options use `--use-cuda` or `--no-use-cuda`:
 
 ```powershell
-uv run python -m distributed_learning.main --mode train --n_epochs 150 --use_cuda False --learning_rate 0.001 --n_workers 4 --n_local_steps 10 --local_batch_size 16 --local_optimizer_class torch.optim.SGD --local_lr 0.01 --local_weight_decay 0.0001 --local_momentum 0.9 --scheduler_class WarmupCosineAnnealing --per_warmup_epochs 0.55 --global_optimizer_class DoNothing --global_optimizer_lr 0.001 --global_optimizer_momentum 0.9 --verbose True
+uv run python scripts/train.py --mode train --n_epochs 150 --n_workers 4 --n_local_steps 10 --local_batch_size 16 --local_optimizer_class SGD --local_lr 0.01 --local_weight_decay 0.0001 --local_momentum 0.9 --scheduler_class WarmupCosineAnnealing --per_warmup_epochs 0.55 --global_optimizer_class DoNothing --global_optimizer_lr 0.001 --global_optimizer_momentum 0.9
 ```
 
 Run a hyperparameter experiment with a predefined configuration:
 
 ```powershell
-uv run python -m distributed_learning.main --mode experiment --dict_name mini_batch_sgd --num_samples 20
+uv run python scripts/train.py --mode experiment --dict_name mini_batch_sgd --num_samples 20
 ```
 
-Run the `local_ada_scale` tuning configuration with:
+Run the `local_ada_scale` tuning configuration with the same argparse-based
+interface:
 
 ```powershell
-uv run python -m distributed_learning.hyperparameter local_ada_scale
+uv run python scripts/train.py --mode experiment --dict_name local_ada_scale --num_samples 10
 ```
 
 ## Development

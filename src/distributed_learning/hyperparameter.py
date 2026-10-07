@@ -1,25 +1,16 @@
-import logging
 import math
-import sys
-from functools import partial
 from pathlib import Path
 from typing import Any
 
 import ray
 import torch
-from ray import tune
-from ray.tune import CLIReporter
 from ray.tune.experiment.trial import Trial
 
 # from ray.tune.search.variant_generator import BasicVariantGenerator  # noqa: ERA001
-from . import experiments_config
 from .centralized import centralized_learning
 from .distributed import distributed_learning
-from .model import Instantiator, evaluate_model, load_data
+from .model import Instantiator, evaluate_model
 from .optimizers import AverageOptimizers, DoNothing
-
-EXPERIMENT_ARG_COUNT = 2
-logger = logging.getLogger(__name__)
 
 
 def tune_distributed_learning(  # noqa: C901, PLR0912, PLR0915
@@ -160,45 +151,16 @@ def tune_distributed_learning(  # noqa: C901, PLR0912, PLR0915
 
 
 def custom_trial_name(trial: Trial) -> str:
-    """Return a concise directory name for a Ray Tune trial."""
+    """Return a concise directory name for a Ray Tune trial.
+
+    Parameters
+    ----------
+    trial : ray.tune.experiment.trial.Trial
+        Trial whose identifier determines the directory name.
+
+    Returns
+    -------
+    str
+        Directory name using the trial's numeric identifier.
+    """
     return f"trial_{trial.trial_id.split('_')[-1]}"
-
-
-if __name__ == "__main__":
-    if len(sys.argv) == EXPERIMENT_ARG_COUNT:
-        experiment_name = sys.argv[1]
-    else:
-        msg = "set experiment name through CLI"
-        raise ValueError(msg)
-
-    search_space: dict = getattr(experiments_config, experiment_name)
-
-    experiment_folder = Path("artifacts/results/runs/tuning").resolve() / experiment_name
-
-    train_dataset, val_dataset = load_data()
-    test_dataset = load_data(test_data=True)
-
-    ray.init()
-    train_data_obj_ref = ray.put((train_dataset, val_dataset, test_dataset))
-
-    reporter = CLIReporter(metric_columns=["test_acc" if search_space.get("test_mode", True) else "val_acc"])
-
-    logger.info("Starting experiment: %s", experiment_name)
-    logger.info("Cuda available: %s", torch.cuda.is_available())
-
-    analysis = tune.run(
-        partial(tune_distributed_learning, train_data_obj_ref=train_data_obj_ref, exp_folder=experiment_folder),
-        config=search_space,
-        num_samples=10,
-        # time_budget_s= 10 * 60 * 60,  # noqa: ERA001
-        progress_reporter=reporter,
-        storage_path=str(experiment_folder),
-        max_concurrent_trials=1,
-        trial_name_creator=custom_trial_name,
-        trial_dirname_creator=custom_trial_name,
-        metric="test_acc" if search_space.get("test_mode", True) else "val_acc",
-        mode="max",
-    )
-    # analysis.dataframe().to_pickle(os.path.join(experment_folder, f"{experiment_name}.pkl"))  # noqa: ERA001
-    logger.info("Best hyperparameters found: %s", analysis.best_config)
-    logger.info("Best validation accuracy: %s", analysis.best_result)
